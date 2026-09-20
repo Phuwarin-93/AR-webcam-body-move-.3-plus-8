@@ -1,0 +1,2834 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>เกมวิทยาศาสตร์ ม.3: ระบบนิเวศ (Adventure Body Tracking 5 ด่าน)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Prompt -->
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- MediaPipe Pose & Camera Utils -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    
+    <!-- html2canvas & jsPDF for Certificate export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Prompt', 'sans-serif'],
+                    },
+                    colors: {
+                        pastelMint: '#A8E6CF',
+                        pastelYellow: '#FDFFB6',
+                        pastelPink: '#FFD3E0',
+                        pastelBlue: '#99E1D9',
+                        pastelPurple: '#D8B4F8',
+                        pastelOrange: '#FFD1A9',
+                        pastelBg: '#F4F8FA',
+                    },
+                    boxShadow: {
+                        '3d': '0 10px 0px rgba(0,0,0,0.1), 0 15px 25px rgba(0,0,0,0.08)',
+                        '3d-btn': '0 6px 0px #88C1B9, 0 10px 15px rgba(0,0,0,0.1)',
+                        '3d-btn-active': '0 2px 0px #88C1B9, 0 4px 8px rgba(0,0,0,0.1)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Prompt', 'Noto Sans Thai', Tahoma, Arial, sans-serif;
+            background-color: #F4F8FA;
+            user-select: none;
+            overflow-x: hidden;
+        }
+
+        /* Thai text safety: keep all UI text readable even when Google Fonts loads slowly. */
+        button, input, textarea, select, h1, h2, h3, h4, p, span, div {
+            font-family: 'Prompt', 'Noto Sans Thai', Tahoma, Arial, sans-serif;
+        }
+
+        /* Canvas uses its own font metrics, so declare a strong Thai fallback stack. */
+        canvas {
+            font-family: 'Prompt', 'Noto Sans Thai', Tahoma, Arial, sans-serif;
+        }
+
+        .mirror {
+            transform: scaleX(-1);
+        }
+
+        .pixar-card {
+            background: linear-gradient(145deg, #ffffff, #f0f5fa);
+            border: 4px solid #ffffff;
+            box-shadow: 0 20px 30px rgba(168, 230, 207, 0.3), inset 0 2px 5px rgba(255, 255, 255, 0.8);
+            border-radius: 2rem;
+        }
+
+        @keyframes float {
+            0% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-10px) rotate(2deg); }
+            100% { transform: translateY(0px) rotate(0deg); }
+        }
+
+        .animate-float {
+            animation: float 4s ease-in-out infinite;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #a8e6cf;
+            border-radius: 4px;
+        }
+    
+        /* Gameplay HUD: keep information at the top and preserve the center for the player's face/body. */
+        #screenGame > div.relative.z-20 { position:absolute; top:0; left:0; right:0; }
+        #hudPromptBanner { display:none !important; }
+    
+        /* Requested HUD update: larger level name + play instruction, same top-left position, yellow inner frame. */
+        #screenGame > div.relative.z-20 > div.w-full.flex.justify-between > div:first-child > div {
+            padding: 10px 16px !important;
+            border: 3px solid #FACC15 !important;
+            box-shadow: inset 0 0 0 2px rgba(253,224,71,.38), 0 8px 20px rgba(0,0,0,.22) !important;
+            border-radius: 16px !important;
+        }
+        #hudLevelBadge {
+            font-size: 15px !important;
+            padding: 6px 10px !important;
+        }
+        #hudLevelTitle {
+            font-size: clamp(16px, 1.55vw, 22px) !important;
+            line-height: 1.15 !important;
+        }
+        #hudLevelSub {
+            font-size: clamp(13px, 1.15vw, 17px) !important;
+            line-height: 1.25 !important;
+            margin-top: 3px !important;
+        }
+
+
+        /* ===== Mobile landscape gameplay layout ===== */
+        #rotatePhoneNotice { display:none; }
+        @media (max-width: 950px) and (orientation: portrait) {
+            #rotatePhoneNotice {
+                display:flex; position:fixed; inset:0; z-index:9999;
+                align-items:center; justify-content:center; text-align:center;
+                background:#0f172a; color:white; padding:28px;
+                font-family:'Prompt','Noto Sans Thai',Tahoma,Arial,sans-serif;
+            }
+            #rotatePhoneNotice .rotate-card { max-width:360px; background:rgba(255,255,255,.10); border:2px solid rgba(255,255,255,.25); border-radius:28px; padding:28px 22px; }
+            #rotatePhoneNotice .rotate-icon { font-size:58px; margin-bottom:12px; }
+        }
+        @media (max-width: 950px) and (orientation: landscape) {
+            html, body, #app { width:100%; min-height:100dvh; }
+            body { overflow:hidden; }
+            #screenGame { width:100vw; height:100dvh; min-height:0; }
+            #screenGame > video, #screenGame > canvas { width:100% !important; height:100% !important; }
+            #screenGame > video { object-fit:cover; object-position:center center; }
+            #screenGame > div.relative.z-20 { padding:3px 7px 4px !important; }
+            #screenGame > div.relative.z-20 > div.w-full { max-width:none !important; gap:6px; }
+            #screenGame > div.relative.z-20 > div.w-full.flex.justify-between > div:first-child > div {
+                padding:4px 7px !important; border-width:2px !important; border-radius:10px !important;
+            }
+            #hudLevelBadge { font-size:9px !important; padding:3px 5px !important; }
+            #hudLevelTitle { font-size:11px !important; line-height:1.05 !important; }
+            #hudLevelSub { font-size:8px !important; line-height:1.08 !important; margin-top:1px !important; max-width:42vw; }
+            #hudTimer, #hudScore { font-size:13px !important; line-height:1 !important; }
+            #hudTimer { min-width:34px; }
+            #screenGame > div.relative.z-20 > div.w-full > div:last-child > div {
+                padding:4px 7px !important; border-radius:10px !important;
+            }
+            #screenGame > div.relative.z-20 > div.w-full > div:last-child > div > div:first-child { font-size:7px !important; }
+            #screenGame > div.relative.z-20 button { width:30px !important; height:30px !important; border-radius:10px !important; }
+            #screenGame > div.relative.z-10 { padding:3px 7px !important; }
+            #screenGame > div.relative.z-10 > div { font-size:8px !important; padding:3px 6px !important; border-radius:7px !important; }
+            #levelCountdownOverlay .relative { min-width:230px !important; padding:12px 18px !important; border-radius:20px !important; }
+            #levelCountdownEmoji { font-size:34px !important; margin-bottom:2px !important; }
+            #levelCountdownNumber { font-size:54px !important; }
+            #levelCountdownText { font-size:12px !important; margin-top:2px !important; }
+            #screenLevelResult { padding:6px !important; }
+            #screenLevelResult .pixar-card { max-width:390px !important; padding:12px !important; border-radius:18px !important; }
+            #screenLevelResult #resultIcon { width:52px !important; height:52px !important; font-size:28px !important; margin-bottom:5px !important; }
+            #screenLevelResult #resultTitle { font-size:19px !important; }
+            #screenLevelResult .bg-slate-50 { padding:9px !important; margin-bottom:9px !important; }
+        }
+
+
+        /* Mobile landscape: gameplay text is intentionally compact so questions and choices do not overlap. */
+        @media (max-width: 950px) and (orientation: landscape) {
+            #levelCountdownOverlay > div.relative { min-width: 240px !important; padding: 12px 18px !important; border-radius: 20px !important; }
+            #levelCountdownEmoji { font-size: 30px !important; margin-bottom: 2px !important; }
+            #levelCountdownNumber { font-size: 52px !important; }
+            #levelCountdownText { font-size: 13px !important; margin-top: 3px !important; }
+        }
+    </style>
+</head>
+<body class="min-h-screen text-slate-700 relative">
+    <div id="rotatePhoneNotice"><div class="rotate-card"><div class="rotate-icon">📱↔️</div><div style="font-size:22px;font-weight:800;margin-bottom:8px">หมุนโทรศัพท์เป็นแนวนอน</div><div style="font-size:14px;line-height:1.6;opacity:.9">เกม Body Tracking ออกแบบให้เล่นในแนวนอน เพื่อให้เห็นกล้อง คำถาม และตัวเลือกครบถ้วน</div></div></div>
+
+
+    <div id="app" class="relative w-full min-h-screen flex flex-col justify-between items-center p-3 md:p-5">
+
+        <!-- Protocol Warning Banner if opened via file:// -->
+        <div id="fileProtocolNotice" class="hidden w-full max-w-5xl bg-amber-500 text-white font-semibold text-xs md:text-sm px-4 py-2.5 rounded-2xl shadow-md mb-3 text-center flex items-center justify-center gap-2">
+            <i class="fa-solid fa-triangle-exclamation text-lg"></i>
+            <span>ข้อแนะนำ: คุณกำลังเปิดไฟล์ตรงๆ (`file://`) ซึ่งเบราว์เซอร์อาจบล็อกกล้องและโมเดล AI หากกล้องไม่ขึ้น แนะนำให้เปิดผ่าน **Live Server** หรืออัปโหลดขึ้นเว็บครับ (แต่ยังสามารถใช้เมาส์/สัมผัสเล่นแทนได้)</span>
+        </div>
+
+        <!-- Top Navigation Bar -->
+        <header class="w-full max-w-6xl flex flex-wrap justify-between items-center bg-white/90 backdrop-blur-md px-4 py-3 rounded-3xl shadow-lg border border-white z-40 gap-3">
+            <div class="flex items-center space-x-3 cursor-pointer" onclick="goToWelcome()">
+                <div class="w-11 h-11 rounded-2xl bg-gradient-to-tr from-teal-400 to-purple-400 flex items-center justify-center text-white text-2xl shadow-md">
+                    🧪
+                </div>
+                <div>
+                    <h1 class="font-bold text-base md:text-lg text-teal-700 leading-tight">วิชาวิทยาศาสตร์ ม.3</h1>
+                    <p class="text-xs text-slate-500 font-medium">เรื่อง ระบบนิเวศ (5 ด่าน Body Tracking)</p>
+                </div>
+            </div>
+
+            <!-- Quick Level Jump Bar -->
+            <div class="flex items-center gap-1.5 overflow-x-auto py-1">
+                <span class="text-xs font-bold text-slate-400 hidden lg:inline mr-1">เลือกด่าน:</span>
+                <button onclick="quickSelectLevel(1)" class="px-2.5 py-1.5 bg-teal-100 hover:bg-teal-200 text-teal-800 text-xs font-bold rounded-xl transition border border-teal-300 flex items-center gap-1 shadow-sm whitespace-nowrap">
+                    <span>1: จัดประเภทระบบนิเวศระบบนิเวศ</span>
+                </button>
+                <button onclick="quickSelectLevel(2)" class="px-2.5 py-1.5 bg-purple-100 hover:bg-purple-200 text-purple-800 text-xs font-bold rounded-xl transition border border-purple-300 flex items-center gap-1 shadow-sm whitespace-nowrap">
+                    <span>2: โซ่อาหาร</span>
+                </button>
+                <button onclick="quickSelectLevel(3)" class="px-2.5 py-1.5 bg-pink-100 hover:bg-pink-200 text-pink-800 text-xs font-bold rounded-xl transition border border-pink-300 flex items-center gap-1 shadow-sm whitespace-nowrap">
+                    <span>3: ความสัมพันธ์</span>
+                </button>
+                <button onclick="quickSelectLevel(4)" class="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs font-bold rounded-xl transition border border-amber-300 flex items-center gap-1 shadow-sm whitespace-nowrap">
+                    <span>4: สมดุลระบบนิเวศ</span>
+                </button>
+                <button onclick="quickSelectLevel(5)" class="px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 text-xs font-bold rounded-xl transition border border-indigo-300 flex items-center gap-1 shadow-sm whitespace-nowrap">
+                    <span>5: วิเคราะห์ระบบนิเวศ</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- SCREEN 1: WELCOME SCREEN -->
+        <section id="screenWelcome" class="w-full max-w-5xl pixar-card p-6 md:p-8 my-auto text-center relative overflow-hidden z-10 transition-all duration-300">
+            <div class="inline-block bg-teal-100 text-teal-800 text-xs font-semibold px-4 py-1.5 rounded-full mb-3 animate-float">
+                ✨ สื่อการเรียนรู้ปฏิสัมพันธ์แบบ Body Tracking 5 ด่าน (ด่านละ 20 คะแนน)
+            </div>
+
+            <h2 class="text-3xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-teal-600 via-purple-600 to-pink-500 mb-3">
+                ระบบนิเวศ
+            </h2>
+            <p class="text-slate-600 text-sm md:text-base mb-6 max-w-2xl mx-auto leading-relaxed">
+                การผจญภัยเรียนรู้ระบบนิเวศด้วยการขยับร่างกายตอบคำถาม ค้างท่าทางไว้ประมาณ 1 วินาทีเพื่อยืนยันคำตอบ สะสมคะแนนผ่านเกณฑ์ร้อยละ 80 ขึ้นไปในทุกด่านเพื่อรับเกียรติบัตร!
+            </p>
+
+            <!-- 5 Level Cards Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-left mb-6">
+                <!-- Level 1 -->
+                <div onclick="quickSelectLevel(1)" class="cursor-pointer bg-gradient-to-br from-teal-50 to-emerald-50 hover:from-teal-100 hover:to-emerald-100 p-3.5 rounded-2xl border-2 border-teal-200 shadow-sm transition hover:scale-105">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="bg-teal-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-md">ด่าน 1 (20 ข้อ)</span>
+                        <span class="text-lg">🧪</span>
+                    </div>
+                    <h4 class="font-bold text-slate-800 text-xs mb-1">องค์ประกอบระบบนิเวศ</h4>
+                    <p class="text-[11px] text-slate-600 leading-snug">
+                        <strong>การท่าทาง:</strong> ยื่นมือซ้าย "ระบบนิเวศบนบก" มือขวา "ระบบนิเวศในน้ำ"
+                    </p>
+                </div>
+
+                <!-- Level 2 -->
+                <div onclick="quickSelectLevel(2)" class="cursor-pointer bg-gradient-to-br from-purple-50 to-indigo-50 hover:from-purple-100 hover:to-indigo-100 p-3.5 rounded-2xl border-2 border-purple-200 shadow-sm transition hover:scale-105">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="bg-purple-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-md">ด่าน 2 (20 ข้อ)</span>
+                        <span class="text-lg">🧮</span>
+                    </div>
+                    <h4 class="font-bold text-slate-800 text-xs mb-1">บทบาทในโซ่อาหาร</h4>
+                    <p class="text-[11px] text-slate-600 leading-snug">
+                        <strong>การท่าทาง:</strong> ยื่นมือค้างไว้ที่ฟองคำตอบที่ถูกต้องเพื่อยืนยัน
+                    </p>
+                </div>
+
+                <!-- Level 3 -->
+                <div onclick="quickSelectLevel(3)" class="cursor-pointer bg-gradient-to-br from-pink-50 to-rose-50 hover:from-pink-100 hover:to-rose-100 p-3.5 rounded-2xl border-2 border-pink-200 shadow-sm transition hover:scale-105">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="bg-pink-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-md">ด่าน 3 (20 ข้อ)</span>
+                        <span class="text-lg">🔥</span>
+                    </div>
+                    <h4 class="font-bold text-slate-800 text-xs mb-1">ความสัมพันธ์ระบบนิเวศบนบก</h4>
+                    <p class="text-[11px] text-slate-600 leading-snug">
+                        <strong>การท่าทาง:</strong> แตะค้างเมื่อข้อความจับคู่ความสัมพันธ์ได้ถูกต้อง ถ้าผิดให้ปล่อยผ่าน
+                    </p>
+                </div>
+
+                <!-- Level 4 -->
+                <div onclick="quickSelectLevel(4)" class="cursor-pointer bg-gradient-to-br from-amber-50 to-orange-50 hover:from-amber-100 hover:to-orange-100 p-3.5 rounded-2xl border-2 border-amber-200 shadow-sm transition hover:scale-105">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-md">ด่าน 4 (20 ข้อ)</span>
+                        <span class="text-lg">⚖️</span>
+                    </div>
+                    <h4 class="font-bold text-slate-800 text-xs mb-1">สมดุลระบบนิเวศ</h4>
+                    <p class="text-[11px] text-slate-600 leading-snug">
+                        <strong>การท่าทาง:</strong> เดินซ้าย–ขวา ใช้ลำตัวเท่านั้นจับกล่องคำตอบ (มือไม่ใช้ตอบ)
+                    </p>
+                </div>
+
+                <!-- Level 5 -->
+                <div onclick="quickSelectLevel(5)" class="cursor-pointer bg-gradient-to-br from-indigo-50 to-cyan-50 hover:from-indigo-100 hover:to-cyan-100 p-3.5 rounded-2xl border-2 border-indigo-200 shadow-sm transition hover:scale-105">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-md">ด่าน 5 (20 ข้อ)</span>
+                        <span class="text-lg">🌟</span>
+                    </div>
+                    <h4 class="font-bold text-slate-800 text-xs mb-1">วิเคราะห์ระบบนิเวศ</h4>
+                    <p class="text-[11px] text-slate-600 leading-snug">
+                        <strong>การท่าทาง:</strong> 🖐️ มือซ้ายเลือกได้เฉพาะซ้าย • ✋ มือขวาเลือกได้เฉพาะขวา • 🙌 สองมือพร้อมกันเลือกตรงกลาง
+                    </p>
+                </div>
+            </div>
+
+            <!-- Player Name Input -->
+            <div class="max-w-md mx-auto bg-white/90 p-4 rounded-2xl shadow-md border border-slate-100 mb-6">
+                <label for="playerNameInput" class="block text-left font-semibold text-slate-700 mb-1.5 text-xs">
+                    <i class="fa-solid fa-user-astronaut text-teal-500 mr-1.5"></i>กรอกชื่อ-นามสกุล ผู้เรียน (สำหรับพิมพ์ลงเกียรติบัตร):
+                </label>
+                <input type="text" id="playerNameInput" placeholder="ด.ช./ด.ญ. สุขใจ ดีเยี่ยม" 
+                    class="w-full px-4 py-2.5 rounded-xl border-2 border-slate-200 focus:border-teal-400 focus:outline-none text-slate-700 font-medium text-sm transition-all">
+            </div>
+
+            <!-- Start Action Button -->
+            <div class="flex flex-col sm:flex-row justify-center items-center gap-3">
+                <button id="btnStartCheck" onclick="goToCameraCheck()" class="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-teal-400 to-emerald-400 hover:from-teal-500 hover:to-emerald-500 text-white font-bold text-base rounded-2xl shadow-3d-btn transition-all transform hover:-translate-y-0.5 active:translate-y-1">
+                    <i class="fa-solid fa-video mr-2"></i> ทดสอบกล้องและเริ่มผจญภัย <i class="fa-solid fa-arrow-right ml-2"></i>
+                </button>
+            </div>
+
+            <div class="mt-6 pt-4 border-t border-slate-200 text-slate-500 text-xs leading-relaxed">
+                ออกแบบและพัฒนาระบบโดย: <strong class="text-teal-700">นางสาวพุวาริน อินทร์ปัญญา</strong> (ตำแหน่งครู โรงเรียนบ้านพนาสวรรค์ สพป. นครสวรรค์ เขต 2)
+            </div>
+        </section>
+
+        <!-- SCREEN 2: CAMERA CHECK -->
+        <section id="screenCameraCheck" class="hidden w-full max-w-4xl pixar-card p-6 md:p-8 my-auto text-center relative z-10 transition-all duration-300">
+            <div class="mb-4 flex flex-wrap justify-center items-center gap-1.5">
+                <span class="text-xs font-bold text-slate-500 mr-2">เลือกลองด่าน:</span>
+                <button id="btnSelectLvl1" onclick="selectLevelInCheck(1)" class="px-3 py-1 rounded-xl font-bold text-xs bg-teal-500 text-white shadow">ด่าน 1</button>
+                <button id="btnSelectLvl2" onclick="selectLevelInCheck(2)" class="px-3 py-1 rounded-xl font-bold text-xs bg-slate-200 text-slate-700 hover:bg-purple-100">ด่าน 2</button>
+                <button id="btnSelectLvl3" onclick="selectLevelInCheck(3)" class="px-3 py-1 rounded-xl font-bold text-xs bg-slate-200 text-slate-700 hover:bg-pink-100">ด่าน 3</button>
+                <button id="btnSelectLvl4" onclick="selectLevelInCheck(4)" class="px-3 py-1 rounded-xl font-bold text-xs bg-slate-200 text-slate-700 hover:bg-amber-100">ด่าน 4</button>
+                <button id="btnSelectLvl5" onclick="selectLevelInCheck(5)" class="px-3 py-1 rounded-xl font-bold text-xs bg-slate-200 text-slate-700 hover:bg-indigo-100">ด่าน 5</button>
+            </div>
+
+            <h3 class="text-2xl font-bold text-slate-800 mb-2">
+                <i class="fa-solid fa-sliders text-teal-500 mr-2"></i>ทดสอบการจับสัญญาณ Body Tracking
+            </h3>
+            <p class="text-slate-600 text-xs md:text-sm mb-4">
+                ยืนถอยห่างให้กล้องเห็นศีรษะ มือทั้งสองข้าง และลำตัวอย่างชัดเจน (หากกล้องไม่เปิด สามารถขยับเมาส์หรือแตะหน้าจอแทนได้)
+            </p>
+
+            <div class="relative w-full max-w-2xl mx-auto aspect-video bg-slate-900 rounded-2xl overflow-hidden shadow-inner border-4 border-white mb-4">
+                <video id="webcamCheck" class="w-full h-full object-cover mirror" playsinline autoplay muted></video>
+                <canvas id="canvasCheck" class="absolute top-0 left-0 w-full h-full mirror"></canvas>
+                
+                <div id="trackingStatusBadge" class="absolute top-3 left-3 bg-red-500/90 text-white text-xs px-3 py-1 rounded-full font-semibold backdrop-blur-sm transition-all flex items-center space-x-1.5">
+                    <span class="w-2 h-2 bg-white rounded-full animate-ping"></span>
+                    <span id="statusBadgeText">กำลังค้นหาผู้เล่น / เชื่อมต่อกล้อง...</span>
+                </div>
+
+                <div class="absolute bottom-3 left-3 right-3 flex justify-between text-[11px] pointer-events-none">
+                    <span id="leftHandBadge" class="bg-slate-800/80 text-white px-2.5 py-1 rounded-lg border border-slate-600">
+                        🖐️ มือซ้าย: <span class="text-yellow-400 font-bold">รอการตรวจจับ</span>
+                    </span>
+                    <span id="bodyLeanBadge" class="bg-slate-800/80 text-white px-2.5 py-1 rounded-lg border border-slate-600">
+                        ⚖️ ลำตัว: <span class="text-teal-300 font-bold">ตรงกลาง</span>
+                    </span>
+                    <span id="rightHandBadge" class="bg-slate-800/80 text-white px-2.5 py-1 rounded-lg border border-slate-600">
+                        ✋ มือขวา: <span class="text-yellow-400 font-bold">รอการตรวจจับ</span>
+                    </span>
+                </div>
+            </div>
+
+            <div class="flex flex-col sm:flex-row justify-center items-center gap-3">
+                <button onclick="goToWelcome()" class="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-xl text-sm transition">
+                    <i class="fa-solid fa-arrow-left mr-2"></i> ย้อนกลับ
+                </button>
+                <button id="btnStartGame" onclick="startLevel(1)" class="px-8 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-base rounded-xl shadow-3d-btn transition">
+                    พร้อมแล้ว! เริ่มเล่นด่านที่ 1 <i class="fa-solid fa-play ml-2"></i>
+                </button>
+            </div>
+        </section>
+
+        <!-- SCREEN 3: GAMEPLAY FULLSCREEN HUD -->
+        <section id="screenGame" class="hidden fixed inset-0 z-50 bg-slate-900 flex flex-col justify-between items-center overflow-hidden select-none">
+            <video id="webcamGame" class="absolute inset-0 w-full h-full object-cover mirror" playsinline autoplay muted></video>
+            <canvas id="canvasGame" class="absolute inset-0 w-full h-full"></canvas>
+
+            <!-- 5-second ready countdown: timer/questions remain paused until this finishes -->
+            <div id="levelCountdownOverlay" class="hidden absolute inset-0 z-[80] flex items-center justify-center pointer-events-none">
+                <div class="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]"></div>
+                <div class="relative text-center px-8 py-7 rounded-[2rem] bg-white/95 border-4 border-yellow-300 shadow-2xl min-w-[300px]">
+                    <div id="levelCountdownEmoji" class="text-5xl md:text-6xl mb-2">🌿✨</div>
+                    <div class="text-sm md:text-base font-extrabold text-teal-700 mb-1">เตรียมตัวให้พร้อม!</div>
+                    <div id="levelCountdownNumber" class="text-7xl md:text-9xl leading-none font-black text-purple-600 drop-shadow-sm">5</div>
+                    <div id="levelCountdownText" class="mt-2 text-base md:text-xl font-extrabold text-slate-700">ยืนให้กล้องเห็นร่างกายชัดเจน</div>
+                </div>
+            </div>
+
+            <!-- Game HUD Top Bar -->
+            <div class="relative z-20 w-full px-3 pt-1 pb-2 flex flex-col items-center bg-gradient-to-b from-slate-900/90 to-transparent">
+                <div class="w-full flex justify-between items-center max-w-6xl">
+                    <div class="flex items-center space-x-2 mt-0">
+                        <div class="bg-white/95 px-3 py-1.5 rounded-xl shadow-lg flex items-center space-x-2 border border-white">
+                            <span id="hudLevelBadge" class="bg-teal-500 text-white font-extrabold text-xs px-2.5 py-1 rounded-lg">ด่านที่ 1</span>
+                            <div>
+                                <div id="hudLevelTitle" class="font-extrabold text-slate-900 text-xs md:text-sm">องค์ประกอบระบบนิเวศสาร</div>
+                                <div id="hudLevelSub" class="text-[10px] md:text-xs text-slate-800 font-bold">ระบบนิเวศบนบก VS ระบบนิเวศในน้ำ</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Large yellow level-name banner centered at the top for every level -->
+                    <div id="hudPromptBanner" class="hidden"></div>
+
+                    <!-- Timer & Score -->
+                    <div class="flex items-center space-x-2 mt-0">
+                        <div class="bg-white/95 px-3.5 py-1.5 rounded-2xl shadow-lg text-center border border-white">
+                            <div class="text-[10px] text-slate-400 font-bold uppercase">เวลาเหลือ</div>
+                            <div id="hudTimer" class="text-lg md:text-xl font-extrabold text-purple-600">200s</div>
+                        </div>
+                        <div class="bg-white/95 px-4 py-1.5 rounded-2xl shadow-lg text-center border border-white">
+                            <div class="text-[10px] text-slate-400 font-bold uppercase">ตอบถูก</div>
+                            <div id="hudScore" class="text-lg md:text-xl font-extrabold text-emerald-600">0 / 20</div>
+                        </div>
+                        <button onclick="pauseGame()" class="w-10 h-10 bg-white/95 hover:bg-white text-slate-700 rounded-2xl flex items-center justify-center shadow-md font-bold text-sm">
+                            <i class="fa-solid fa-pause"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Mobile prompt banner removed; hidden placeholder retained for JS compatibility -->
+                <div id="hudPromptBannerMobile" class="hidden"></div>
+            </div>
+
+            <!-- Bottom Tracking Hint -->
+            <div class="relative z-10 w-full p-3 flex justify-between items-end bg-gradient-to-t from-slate-900/80 to-transparent">
+                <div class="text-white/80 text-xs bg-slate-800/60 px-3 py-1.5 rounded-lg backdrop-blur-md">
+                    <i class="fa-solid fa-child text-teal-400 mr-1"></i> ควบคุมด้วยระบบ Body Tracking (หรือคลิกเมาส์/สัมผัส)
+                </div>
+                <div class="text-white/80 text-xs bg-slate-800/60 px-3 py-1.5 rounded-lg backdrop-blur-md">
+                    เกณฑ์ผ่านด่าน: <span class="text-emerald-400 font-bold">>= 80% (16/20 คะแนน)</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- SCREEN 4: LEVEL RESULT MODAL -->
+        <section id="screenLevelResult" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+            <div class="pixar-card w-full max-w-md p-6 text-center relative bg-white">
+                <div id="resultIcon" class="w-20 h-20 mx-auto mb-3 rounded-full flex items-center justify-center text-4xl shadow-lg">
+                    🏆
+                </div>
+                <h3 id="resultTitle" class="text-2xl md:text-3xl font-extrabold text-slate-800 mb-1">ผ่านด่านสำเร็จ!</h3>
+                <p id="resultSub" class="text-slate-600 text-xs md:text-sm mb-4">คุณทำผลงานได้อย่างยอดเยี่ยม</p>
+
+                <div class="bg-slate-50 p-4 rounded-2xl mb-5 border border-slate-100">
+                    <div class="flex justify-between items-center mb-1.5">
+                        <span class="text-slate-500 text-xs">คะแนนที่ได้ในด่านนี้:</span>
+                        <span id="resultScoreText" class="font-bold text-base text-teal-600">16 / 20</span>
+                    </div>
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-slate-500 text-xs">คิดเป็นร้อยละ:</span>
+                        <span id="resultPercentText" class="font-extrabold text-lg text-purple-600">80%</span>
+                    </div>
+                    <div class="w-full bg-slate-200 h-3 rounded-full overflow-hidden">
+                        <div id="resultProgressBar" class="bg-gradient-to-r from-teal-400 to-emerald-400 h-full w-[80%] transition-all duration-500"></div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col gap-2.5">
+                    <button id="btnNextLevel" onclick="proceedToNextStep()" class="w-full py-3 bg-gradient-to-r from-teal-400 to-emerald-400 text-white font-bold rounded-xl shadow-3d-btn hover:from-teal-500 hover:to-emerald-500 transition text-sm">
+                        ไปด่านต่อไป <i class="fa-solid fa-arrow-right ml-2"></i>
+                    </button>
+                    <button id="btnRetryLevel" onclick="retryCurrentLevel()" class="w-full py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-xl text-sm transition">
+                        <i class="fa-solid fa-rotate-right mr-2"></i> ลองใหม่อีกครั้ง
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- SCREEN 5: FINAL CERTIFICATE -->
+        <section id="screenCertificate" class="hidden w-full max-w-4xl pixar-card p-6 md:p-8 my-auto text-center relative z-10">
+            <div class="inline-block bg-emerald-100 text-emerald-800 text-xs font-bold px-4 py-1.5 rounded-full mb-3">
+                🎉 ยินดีด้วย! คุณผ่านการทดสอบครบทั้ง 5 ด่านแล้ว
+            </div>
+            <h2 class="text-2xl md:text-3xl font-extrabold text-slate-800 mb-4">เกียรติบัตรรับรองผลการเรียนรู้</h2>
+
+            <!-- Certificate Capture Canvas Element -->
+            <div id="certificateCaptureArea" class="w-full bg-amber-50/40 p-6 md:p-10 rounded-3xl border-8 border-amber-200 shadow-xl relative overflow-hidden my-2 text-slate-800">
+                <div class="absolute top-0 left-0 w-20 h-20 border-t-8 border-l-8 border-teal-400 rounded-tl-2xl pointer-events-none"></div>
+                <div class="absolute top-0 right-0 w-20 h-20 border-t-8 border-r-8 border-teal-400 rounded-tr-2xl pointer-events-none"></div>
+                <div class="absolute bottom-0 left-0 w-20 h-20 border-b-8 border-l-8 border-teal-400 rounded-bl-2xl pointer-events-none"></div>
+                <div class="absolute bottom-0 right-0 w-20 h-20 border-b-8 border-r-8 border-teal-400 rounded-br-2xl pointer-events-none"></div>
+
+                <div class="flex justify-center mb-2">
+                    <div class="w-14 h-14 rounded-full bg-gradient-to-br from-teal-400 to-purple-400 text-white flex items-center justify-center text-2xl shadow-md">
+                        🎓
+                    </div>
+                </div>
+
+                <h3 class="text-2xl md:text-4xl font-extrabold text-teal-800 tracking-wide mb-1">เกียรติบัตรรับรองความรู้</h3>
+                <p class="text-xs md:text-sm text-slate-500 font-medium tracking-widest uppercase mb-4">Certificate of Achievement</p>
+
+                <p class="text-xs md:text-sm text-slate-600 mb-1">เกียรติบัตรฉบับนี้ให้ไว้เพื่อแสดงว่า</p>
+                <h4 id="certPlayerName" class="text-2xl md:text-3xl font-extrabold text-purple-700 underline decoration-teal-300 decoration-wavy underline-offset-8 my-3">
+                    เด็กชายสุขใจ ดีเยี่ยม
+                </h4>
+                <p class="text-xs md:text-sm text-slate-600 max-w-xl mx-auto leading-relaxed mb-5">
+                    ได้ผ่านการเรียนรู้และทดสอบด้วยเกมตอบสนองการเคลื่อนไหวร่างกาย (Body Tracking 5 ด่าน)<br>
+                    เรื่อง <span class="font-bold text-teal-700">"ระบบนิเวศ"</span> วิชาวิทยาศาสตร์ ชั้นมัธยมศึกษาปีที่ 2
+                </p>
+
+                <div class="inline-flex items-center bg-white px-6 py-2.5 rounded-2xl shadow-sm border border-amber-200 mb-6 space-x-6">
+                    <div>
+                        <div class="text-[10px] text-slate-400 font-semibold">คะแนนรวม 5 ด่าน</div>
+                        <div id="certTotalScore" class="text-xl font-extrabold text-emerald-600">45 / 50</div>
+                    </div>
+                    <div class="h-8 w-px bg-slate-200"></div>
+                    <div>
+                        <div class="text-[10px] text-slate-400 font-semibold">ผลการประเมิน</div>
+                        <div id="certGradeText" class="text-xl font-extrabold text-purple-600">ผ่านเกณฑ์ (90.0%)</div>
+                    </div>
+                </div>
+
+                <!-- Footer Signatures -->
+                <div class="border-t border-amber-200/80 pt-4 flex flex-col md:flex-row justify-between items-center text-xs text-slate-500 gap-3">
+                    <div class="text-left">
+                        <p class="font-semibold text-teal-800">เกมสื่อการเรียนรู้วิทยาศาสตร์ ม.3</p>
+                        <p id="certDateText">วันที่อนุมัติ: 17 กันยายน 2026</p>
+                    </div>
+                    <div class="text-center md:text-right">
+                        <p class="font-semibold text-slate-700">ออกแบบและพัฒนาระบบโดย</p>
+                        <p class="font-bold text-teal-700 text-sm">นางสาวพุวาริน อินทร์ปัญญา</p>
+                        <p class="text-[11px]">ตำแหน่งครู โรงเรียนบ้านพนาสวรรค์ สพป. นครสวรรค์ เขต 2</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Certificate Action Buttons -->
+            <div class="flex flex-col sm:flex-row justify-center items-center gap-3 mt-5">
+                <button onclick="downloadCertPNG()" class="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-teal-400 to-emerald-400 hover:from-teal-500 hover:to-emerald-500 text-white font-bold rounded-xl shadow-lg transition text-sm">
+                    <i class="fa-solid fa-file-image mr-2"></i> บันทึกเป็นรูปภาพ (PNG)
+                </button>
+                <button onclick="downloadCertPDF()" class="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white font-bold rounded-xl shadow-lg transition text-sm">
+                    <i class="fa-solid fa-file-pdf mr-2"></i> บันทึกเป็นเอกสาร (PDF)
+                </button>
+                <button onclick="goToWelcome()" class="w-full sm:w-auto px-6 py-3 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-xl transition text-sm">
+                    <i class="fa-solid fa-rotate-right mr-2"></i> เล่นใหม่อีกครั้ง
+                </button>
+            </div>
+        </section>
+
+        <!-- Toast Notifications -->
+        <div id="toastBox" class="hidden fixed bottom-6 right-6 z-50 bg-slate-800 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center space-x-3 transition-all duration-300">
+            <span id="toastIcon">💡</span>
+            <span id="toastMessage" class="text-sm font-medium">ข้อความแจ้งเตือน</span>
+        </div>
+
+    </div>
+
+    <script>
+        // Polyfill for roundRect in older Canvas engines
+        if (!CanvasRenderingContext2D.prototype.roundRect) {
+            CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+                if (typeof r === 'undefined') r = 5;
+                if (typeof r === 'number') r = {tl: r, tr: r, br: r, bl: r};
+                this.beginPath();
+                this.moveTo(x + r.tl, y);
+                this.lineTo(x + w - r.tr, y);
+                this.quadraticCurveTo(x + w, y, x + w, y + r.tr);
+                this.lineTo(x + w, y + h - r.br);
+                this.quadraticCurveTo(x + w, y + h, x + w - r.br, y + h);
+                this.lineTo(x + r.bl, y + h);
+                this.quadraticCurveTo(x, y + h, x, y + h - r.bl);
+                this.lineTo(x, y + r.tl);
+                this.quadraticCurveTo(x, y, x + r.tl, y);
+                this.closePath();
+                return this;
+            };
+        }
+
+
+        // ===== Built-in game sounds (Web Audio API) =====
+        // No MP3 files are required, so the game remains a single HTML file.
+        let gameAudioCtx = null;
+
+        function ensureGameAudio() {
+            try {
+                if (!gameAudioCtx) {
+                    const AC = window.AudioContext || window.webkitAudioContext;
+                    if (!AC) return null;
+                    gameAudioCtx = new AC();
+                }
+                if (gameAudioCtx.state === 'suspended') gameAudioCtx.resume();
+                return gameAudioCtx;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function playTone(freq, duration = 0.10, volume = 0.08, type = 'sine', delay = 0) {
+            const ac = ensureGameAudio();
+            if (!ac) return;
+            const t = ac.currentTime + delay;
+            const osc = ac.createOscillator();
+            const gain = ac.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, t);
+            gain.gain.setValueAtTime(0.0001, t);
+            gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), t + 0.012);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+            osc.connect(gain);
+            gain.connect(ac.destination);
+            osc.start(t);
+            osc.stop(t + duration + 0.03);
+        }
+
+        function playCountdownSound(number) {
+            // 5–2 = soft tick, 1 = slightly higher "ready" tick.
+            playTone(number === 1 ? 760 : 560, 0.11, 0.075, 'sine');
+        }
+
+        function playStartMissionSound() {
+            // Cute rising chime for "เริ่มภารกิจกันเลย!"
+            playTone(660, 0.13, 0.075, 'sine', 0);
+            playTone(880, 0.14, 0.075, 'sine', 0.11);
+            playTone(1100, 0.18, 0.07, 'sine', 0.22);
+        }
+
+        // Cute looping music while the student reads the rules / gets ready.
+        let readyMusicInterval = null;
+        function startReadyMusic() {
+            stopReadyMusic();
+            ensureGameAudio();
+            const melody = [523, 659, 784, 659, 587, 698, 880, 698];
+            let step = 0;
+            const tick = () => {
+                playTone(melody[step % melody.length], 0.16, 0.035, 'sine');
+                if (step % 2 === 0) playTone(melody[step % melody.length] / 2, 0.20, 0.018, 'triangle', 0.02);
+                step++;
+            };
+            tick();
+            readyMusicInterval = setInterval(tick, 330);
+        }
+        function stopReadyMusic() {
+            if (readyMusicInterval) { clearInterval(readyMusicInterval); readyMusicInterval = null; }
+        }
+
+        // Cute, gentle looping background music during active gameplay.
+        // Synthesized with Web Audio so the game remains one HTML file.
+        let gameplayMusicInterval = null;
+        let gameplayMusicStep = 0;
+        function startGameplayMusic() {
+            stopGameplayMusic();
+            ensureGameAudio();
+            gameplayMusicStep = 0;
+            const melody = [523, 659, 784, 659, 698, 587, 659, 523, 587, 698, 784, 698, 659, 587, 523, 659];
+            const tick = () => {
+                if (!state.isPlaying || state.isCountingDown) return;
+                const n = melody[gameplayMusicStep % melody.length];
+                playTone(n, 0.18, 0.020, 'sine');
+                if (gameplayMusicStep % 2 === 0) playTone(n / 2, 0.24, 0.010, 'triangle', 0.015);
+                gameplayMusicStep++;
+            };
+            tick();
+            gameplayMusicInterval = setInterval(tick, 430);
+        }
+        function stopGameplayMusic() {
+            if (gameplayMusicInterval) { clearInterval(gameplayMusicInterval); gameplayMusicInterval = null; }
+        }
+
+        function playReadyConfirmedSound() {
+            playTone(660, 0.10, 0.06, 'sine', 0);
+            playTone(880, 0.12, 0.06, 'sine', 0.09);
+            playTone(1047, 0.16, 0.055, 'sine', 0.18);
+        }
+
+        function playAnswerSound() {
+            // Same neutral "pop" for every selected answer.
+            // It confirms that the answer was received without revealing correct/incorrect.
+            playTone(720, 0.07, 0.065, 'triangle', 0);
+            playTone(900, 0.09, 0.055, 'sine', 0.055);
+        }
+
+        function playLevelResultSound(passed, levelNum = 1) {
+            const ac = ensureGameAudio();
+            if (!ac) return;
+
+            if (passed) {
+                // Bright mission-clear fanfare shared by Levels 1–5.
+                const transpose = Math.min(4, Math.max(0, levelNum - 1)) * 12;
+                playTone(523 + transpose, 0.16, 0.09, 'triangle', 0.00);
+                playTone(659 + transpose, 0.18, 0.09, 'triangle', 0.13);
+                playTone(784 + transpose, 0.20, 0.10, 'triangle', 0.27);
+                playTone(1047 + transpose, 0.42, 0.11, 'sine', 0.43);
+
+                // Short synthesized applause bursts; no external audio file.
+                [0.12, 0.28, 0.44, 0.60].forEach((delay, index) => {
+                    const length = Math.floor(ac.sampleRate * 0.10);
+                    const buffer = ac.createBuffer(1, length, ac.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < length; i++) {
+                        const fade = 1 - i / length;
+                        data[i] = (Math.random() * 2 - 1) * fade;
+                    }
+                    const source = ac.createBufferSource();
+                    const filter = ac.createBiquadFilter();
+                    const gain = ac.createGain();
+                    source.buffer = buffer;
+                    filter.type = 'bandpass';
+                    filter.frequency.value = 1350 + index * 120;
+                    filter.Q.value = 0.7;
+                    gain.gain.value = 0.035;
+                    source.connect(filter); filter.connect(gain); gain.connect(ac.destination);
+                    source.start(ac.currentTime + delay);
+                });
+            } else {
+                // Gentle retry cue without sounding harsh.
+                playTone(440, 0.18, 0.07, 'sine', 0.00);
+                playTone(349, 0.22, 0.065, 'sine', 0.17);
+                playTone(294, 0.28, 0.055, 'triangle', 0.34);
+            }
+        }
+
+        function playPunchSound(finalHit = false) {
+            // Short built-in impact sound; no external audio file required.
+            const ac = ensureGameAudio();
+            if (!ac) return;
+            const t = ac.currentTime;
+            const osc = ac.createOscillator();
+            const gain = ac.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(finalHit ? 105 : 135, t);
+            osc.frequency.exponentialRampToValueAtTime(55, t + 0.11);
+            gain.gain.setValueAtTime(0.0001, t);
+            gain.gain.exponentialRampToValueAtTime(finalHit ? 0.18 : 0.13, t + 0.008);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+            osc.connect(gain); gain.connect(ac.destination);
+            osc.start(t); osc.stop(t + 0.16);
+            // tiny high-frequency click makes the punch easier to hear in a classroom
+            playTone(finalHit ? 230 : 190, 0.055, finalHit ? 0.07 : 0.05, 'square', 0.015);
+        }
+
+        // Global Game State
+        const state = {
+            currentLevel: 1,
+            totalLevels: 5,
+            totalQuestions: 10,
+            isPlaying: false,
+            isWaitingNext: false,
+            playerName: "ผู้เรียนวิทยาศาสตร์ ม.3",
+            timer: 200,
+            timerInterval: null,
+            countdownInterval: null,
+            countdownToken: 0,
+            isCountingDown: false,
+            itemTimer: 10,
+            scores: {
+                level1: 0,
+                level2: 0,
+                level3: 0,
+                level4: 0,
+                level5: 0
+            },
+            currentQuestionIndex: 0,
+            leftHandPos: { x: 0, y: 0, detected: false },
+            rightHandPos: { x: 0, y: 0, detected: false },
+            headPos: { x: 0, y: 0, detected: false },
+            bodyCenterPos: { x: 0, y: 0, detected: false },
+            bodyLeanAngle: 0,
+            currentLeanZone: null,
+            leanDwellCount: 0,
+            cameraActive: false,
+            cameraStream: null,
+            fallingItems: [],
+            interactiveBubbles: [],
+            level4Options: [],
+            level5Mission: { energy: 0, combo: 0, stars: 0, flashUntil: 0, flashX: 0, flashY: 0 },
+            level5Arm: { leftRaised: false, rightRaised: false, gesture: 'neutral', targetIndex: -1, since: 0, requireNeutral: true },
+            // Level 5 legacy tracker: track wrist motion so answers require a real punch gesture.
+            punch: {
+                left:  { prevX: 0, prevY: 0, prevZ: 0, prevT: 0, speed: 0, zSpeed: 0, hitAt: 0, armed: false, armAt: 0, fist: false, fistSeenAt: 0 },
+                right: { prevX: 0, prevY: 0, prevZ: 0, prevT: 0, speed: 0, zSpeed: 0, hitAt: 0, armed: false, armAt: 0, fist: false, fistSeenAt: 0 },
+                sequence: { firstSide: null, targetIndex: -1, at: 0 },
+                charge: { targetIndex: -1, since: 0, requireOpen: false },
+                cooldownUntil: 0
+            }
+        };
+
+        const levelData = {
+            1: {
+                title: "ด่านที่ 1: จัดประเภทของระบบนิเวศ",
+                sub: "ยื่นมือซ้าย (ระบบนิเวศบนบก) หรือ มือขวา (ระบบนิเวศในน้ำ)",
+                items: [
+                    { text: "ทะเล", type: "solute" },
+                    { text: "ป่าดิบชื้น", type: "solvent" },
+                    { text: "แม่น้ำ", type: "solute" },
+                    { text: "ทุ่งหญ้า", type: "solvent" },
+                    { text: "ทะเลสาบ", type: "solute" },
+                    { text: "ทะเลทราย", type: "solvent" },
+                    { text: "บึง", type: "solute" },
+                    { text: "ป่าสน", type: "solvent" },
+                    { text: "แนวปะการัง", type: "solute" },
+                    { text: "ป่าเบญจพรรณ", type: "solvent" },
+                    { text: "มหาสมุทร", type: "solute" },
+                    { text: "ป่าชายเลน", type: "solvent" },
+                    { text: "ลำธาร", type: "solute" },
+                    { text: "ป่าเต็งรัง", type: "solvent" },
+                    { text: "คลอง", type: "solute" },
+                    { text: "ทุ่งสะวันนา", type: "solvent" },
+                    { text: "หนองน้ำ", type: "solute" },
+                    { text: "ป่าดิบแล้ง", type: "solvent" },
+                    { text: "อ่าว", type: "solute" },
+                    { text: "ภูเขา", type: "solvent" }
+                ]
+            },
+            2: {
+                title: "ด่านที่ 2: บทบาทในโซ่อาหาร",
+                sub: "ยื่นมือแตะค้างไว้ที่ฟองคำตอบที่ถูกต้อง",
+                questions: [
+                    { q: "หญ้า → ตั๊กแตน → กบ → งู สิ่งมีชีวิตใดเป็นผู้ผลิต?", ans: "🌱 หญ้า", opts: ["🌱 หญ้า", "🦗 ตั๊กแตน", "🐸 กบ"] },
+                    { q: "ข้าว → หนู → งู → เหยี่ยว หนูมีบทบาทใด?", ans: "🐰 ผู้บริโภคอันดับ 1", opts: ["🌿 ผู้ผลิต", "🐰 ผู้บริโภคอันดับ 1", "🐍 ผู้บริโภคอันดับ 2"] },
+                    { q: "สิ่งมีชีวิตใดทำหน้าที่ย่อยซากและคืนสารอาหารสู่ระบบนิเวศ?", ans: "🍄 เห็ดรา", opts: ["🌱 หญ้า", "🐰 กระต่าย", "🍄 เห็ดรา"] },
+                    { q: "แพลงก์ตอนพืช → ปลาเล็ก → ปลาใหญ่ ปลาใหญ่เป็นผู้บริโภคอันดับใด?", ans: "2️⃣ อันดับ 2", opts: ["1️⃣ อันดับ 1", "2️⃣ อันดับ 2", "🌿 ผู้ผลิต"] },
+                    { q: "สิ่งมีชีวิตใดสร้างอาหารเองได้ด้วยการสังเคราะห์ด้วยแสง?", ans: "🌿 สาหร่าย", opts: ["🌿 สาหร่าย", "🦐 กุ้ง", "🐟 ปลา"] },
+                    { q: "ใบไม้ → หนอน → นก ผู้บริโภคอันดับ 1 คือสิ่งมีชีวิตใด?", ans: "🐛 หนอน", opts: ["🍃 ใบไม้", "🐛 หนอน", "🐦 นก"] },
+                    { q: "แบคทีเรียและเห็ดราส่วนใหญ่มีบทบาทใดในโซ่อาหาร?", ans: "🍄 ผู้ย่อยสลาย", opts: ["🌿 ผู้ผลิต", "🐾 ผู้บริโภค", "🍄 ผู้ย่อยสลาย"] },
+                    { q: "ข้าว → ตั๊กแตน → กบ พลังงานเข้าสู่โซ่อาหารผ่านสิ่งมีชีวิตใดก่อน?", ans: "🌾 ข้าว", opts: ["🌾 ข้าว", "🦗 ตั๊กแตน", "🐸 กบ"] },
+                    { q: "กระต่ายกินหญ้า กระต่ายจัดเป็นสิ่งมีชีวิตกลุ่มใด?", ans: "🐾 ผู้บริโภค", opts: ["🌿 ผู้ผลิต", "🐾 ผู้บริโภค", "🍄 ผู้ย่อยสลาย"] },
+                    { q: "พืชสีเขียวมีบทบาทสำคัญใดในโซ่อาหาร?", ans: "🌿 ผู้ผลิต", opts: ["🌿 ผู้ผลิต", "🦊 ผู้ล่า", "🍄 ผู้ย่อยสลาย"] },
+                    { q: "หญ้า → กระต่าย → สุนัขจิ้งจอก กระต่ายเป็นผู้บริโภคอันดับใด?", ans: "1️⃣ อันดับ 1", opts: ["1️⃣ อันดับ 1", "2️⃣ อันดับ 2", "3️⃣ อันดับ 3"] },
+                    { q: "หญ้า → ตั๊กแตน → กบ → งู กบเป็นผู้บริโภคอันดับใด?", ans: "2️⃣ อันดับ 2", opts: ["1️⃣ อันดับ 1", "2️⃣ อันดับ 2", "3️⃣ อันดับ 3"] },
+                    { q: "ข้าว → หนู → งู → เหยี่ยว งูเป็นผู้บริโภคอันดับใด?", ans: "2️⃣ อันดับ 2", opts: ["1️⃣ อันดับ 1", "2️⃣ อันดับ 2", "3️⃣ อันดับ 3"] },
+                    { q: "ข้าว → หนู → งู → เหยี่ยว เหยี่ยวเป็นผู้บริโภคอันดับใด?", ans: "3️⃣ อันดับ 3", opts: ["1️⃣ อันดับ 1", "2️⃣ อันดับ 2", "3️⃣ อันดับ 3"] },
+                    { q: "แพลงก์ตอนพืช → แพลงก์ตอนสัตว์ → ปลาเล็ก ผู้ผลิตคือข้อใด?", ans: "🌿 แพลงก์ตอนพืช", opts: ["🌿 แพลงก์ตอนพืช", "🦠 แพลงก์ตอนสัตว์", "🐟 ปลาเล็ก"] },
+                    { q: "สาหร่าย → หอย → ปลา หอยมีบทบาทใด?", ans: "🐰 ผู้บริโภคอันดับ 1", opts: ["🌿 ผู้ผลิต", "🐰 ผู้บริโภคอันดับ 1", "🐍 ผู้บริโภคอันดับ 2"] },
+                    { q: "ใบไม้แห้งถูกเห็ดราย่อยสลาย เห็ดรามีบทบาทใด?", ans: "🍄 ผู้ย่อยสลาย", opts: ["🌿 ผู้ผลิต", "🐾 ผู้บริโภค", "🍄 ผู้ย่อยสลาย"] },
+                    { q: "ต้นมะม่วง → หนอน → นก ต้นมะม่วงมีบทบาทใด?", ans: "🌿 ผู้ผลิต", opts: ["🌿 ผู้ผลิต", "🐰 ผู้บริโภคอันดับ 1", "🍄 ผู้ย่อยสลาย"] },
+                    { q: "หญ้า → วัว → คน วัวมีบทบาทใดในโซ่อาหารนี้?", ans: "🐰 ผู้บริโภคอันดับ 1", opts: ["🌿 ผู้ผลิต", "🐰 ผู้บริโภคอันดับ 1", "🐍 ผู้บริโภคอันดับ 2"] },
+                    { q: "พืชน้ำ → ลูกน้ำ → ปลา ลูกน้ำเป็นผู้บริโภคอันดับใด?", ans: "1️⃣ อันดับ 1", opts: ["1️⃣ อันดับ 1", "2️⃣ อันดับ 2", "🌿 ผู้ผลิต"] }
+                ]
+            },
+            3: {
+                title: "ด่านที่ 3: ความสัมพันธ์ของสิ่งมีชีวิต",
+                sub: "เลือกจับฟองอากาศฟองที่คิดว่าถูกให้ครบ 20 ครั้ง • ฟองที่ปล่อยผ่านไม่นับและจะวนมาใหม่",
+                items: [
+                    { text: "🐃 ควาย – 🐦 นกเอี้ยง | ได้ประโยชน์ร่วม", correct: true },
+                    { text: "🌳 ต้นไม้ใหญ่ – 🌸 กล้วยไม้ | ปรสิต", correct: false },
+                    { text: "🐍 งู – 🐭 หนู | ล่าเหยื่อ", correct: true },
+                    { text: "🐕 สุนัข – 🕷️ เห็บ | ได้ประโยชน์ร่วม", correct: false },
+                    { text: "🌾 ต้นข้าว – 🌱 วัชพืช | แข่งขัน", correct: true },
+                    { text: "🦈 ฉลาม – 🐟 เหาฉลาม | อิงอาศัย", correct: true },
+                    { text: "👤 คน – 🪱 พยาธิในลำไส้ | เป็นกลาง", correct: false },
+                    { text: "🐸 กบ – 🦟 แมลง | ล่าเหยื่อ", correct: true },
+                    { text: "🐆 เสือดาว – 🦌 กวาง | แข่งขัน", correct: false },
+                    { text: "🍄 รา – 🌿 สาหร่ายในไลเคน | พึ่งพา", correct: true },
+                    { text: "🐘 ช้าง – 🦋 ผีเสื้อในบริเวณเดียวกัน | เป็นกลาง", correct: true },
+                    { text: "🌳 ต้นไม้ – 🌿 กาฝาก | อิงอาศัย", correct: false },
+                    { text: "🦁 สิงโต – 🐆 ไฮยีนาที่แย่งอาหารกัน | แข่งขัน", correct: true },
+                    { text: "🐊 จระเข้ – 🐦 นกที่ช่วยกินเศษอาหารบริเวณปาก | ได้ประโยชน์ร่วม", correct: true },
+                    { text: "🌺 ดอกไม้ – 🐝 ผึ้ง | ล่าเหยื่อ", correct: false },
+                    { text: "🐟 ปลาการ์ตูน – 🌊 ดอกไม้ทะเล | ได้ประโยชน์ร่วมกัน (+/+)", correct: true },
+                    { text: "🌳 ต้นไม้ใหญ่ – 🐦 นกที่ทำรังบนกิ่งไม้ | อิงอาศัย", correct: true },
+                    { text: "🐱 แมว – 🐭 หนู | เป็นกลาง", correct: false },
+                    { text: "🌽 ต้นข้าวโพด – 🌱 วัชพืชในแปลง | ปรสิต", correct: false },
+                    { text: "🐇 กระต่าย – 🪱 ไส้เดือนที่อยู่ในบริเวณเดียวกัน | เป็นกลาง", correct: true },
+                    { text: "🦤 นกกระจอกเทศ – 🦓 ม้าลาย (ช่วยกันระวังภัย) | ได้ประโยชน์ร่วมกัน (+/+)", correct: true },
+                    { text: "🌿 พลูด่างบนต้นไม้ใหญ่ | อิงอาศัย (+/0)", correct: true },
+                    { text: "🕷️ แมงมุมทำรังบนกิ่งไม้ | อิงอาศัย (+/0)", correct: true },
+                    { text: "🐻 หมีสีน้ำตาล – 🐟 ปลาแซลมอน | ล่าเหยื่อ (+/-)", correct: true },
+                    { text: "🦟 ยุง – 👤 มนุษย์ | ปรสิต (+/-)", correct: true },
+                    { text: "🍄 เห็ดราบนร่างกายมนุษย์ (โรคกลากเกลื้อน) | ปรสิต (+/-)", correct: true },
+                    { text: "🐯 ลูกเสือสองตัวแย่งนมแม่ตัวเดียวกัน | แข่งขัน (-/-)", correct: true },
+                    { text: "🐸 กบ – 🪱 ไส้เดือนดินในทุ่งนา | เป็นกลาง (0/0)", correct: true }
+                ]
+            },
+            4: {
+                title: "ด่านที่ 4: โซ่อาหารและสมดุลระบบนิเวศ",
+                sub: "เดินซ้าย–ขวาเพื่อใช้ลำตัวจับคำตอบที่ถูกต้องซึ่งลอยลงมาจากด้านบน",
+                questions: [
+                    { q: "หากจำนวนงูในนาข้าวลดลงมาก ระบบนิเวศบนบกใดมีแนวโน้มเพิ่มจำนวน?", opts: ["หนู", "ข้าว"], ans: "left" },
+                    { q: "พลังงานในระบบนิเวศเริ่มต้นเข้าสู่ผู้ผลิตจากแหล่งใดเป็นหลัก?", opts: ["ดวงอาทิตย์", "ผู้ย่อยสลาย"], ans: "left" },
+                    { q: "ถ้าผู้ผลิตในระบบนิเวศลดลงอย่างมาก ผลใดมีแนวโน้มเกิดขึ้น?", opts: ["ผู้บริโภคมีอาหารลดลง", "ผู้บริโภคมีอาหารเพิ่มขึ้น"], ans: "left" },
+                    { q: "ข้อใดเป็นโซ่อาหารที่เรียงลำดับถูกต้อง?", opts: ["หญ้า → ตั๊กแตน → กบ", "กบ → ตั๊กแตน → หญ้า"], ans: "left" },
+                    { q: "ผู้ย่อยสลายมีความสำคัญต่อระบบนิเวศอย่างไร?", opts: ["หมุนเวียนสารอาหารกลับสู่สิ่งแวดล้อม", "สร้างแสงให้ผู้ผลิต"], ans: "left" },
+                    { q: "สารพิษที่สลายตัวยากเข้าสู่โซ่อาหาร มักพบความเข้มข้นสูงในระบบนิเวศบนบกกลุ่มใด?", opts: ["ผู้บริโภคลำดับสูง", "ผู้ผลิตเท่านั้น"], ans: "left" },
+                    { q: "การตัดไม้จำนวนมากส่งผลโดยตรงต่อปัจจัยใด?", opts: ["แหล่งที่อยู่อาศัยลดลง", "ความหลากหลายเพิ่มขึ้นทันที"], ans: "left" },
+                    { q: "ถ้าตั๊กแตนเพิ่มจำนวนมากในโซ่ ข้าว → ตั๊กแตน → กบ ข้าวมีแนวโน้มอย่างไร?", opts: ["ลดลง", "เพิ่มขึ้น"], ans: "left" },
+                    { q: "ระบบนิเวศบนบกหลายโซ่อาหารที่เชื่อมโยงกันเรียกว่าอะไร?", opts: ["สายใยอาหาร", "ประชากร"], ans: "left" },
+                    { q: "การรักษาความหลากหลายทางชีวภาพช่วยระบบนิเวศอย่างไร?", opts: ["เพิ่มความยืดหยุ่นและสมดุล", "ทำให้เหลือระบบนิเวศบนบกชนิดเดียว"], ans: "left" },
+                    { q: "ถ้าจำนวนกบในโซ่อาหาร ข้าว → ตั๊กแตน → กบ ลดลงมาก ตั๊กแตนมีแนวโน้มอย่างไร?", opts: ["เพิ่มขึ้น", "ลดลง"], ans: "left" },
+                    { q: "ถ้าหนูในนาข้าวเพิ่มจำนวนมากเกินไป ข้าวมีแนวโน้มอย่างไร?", opts: ["ลดลง", "เพิ่มขึ้น"], ans: "left" },
+                    { q: "สิ่งมีชีวิตกลุ่มใดช่วยคืนแร่ธาตุจากซากสิ่งมีชีวิตสู่ดิน?", opts: ["ผู้ย่อยสลาย", "ผู้ล่าลำดับสูง"], ans: "left" },
+                    { q: "หากแหล่งน้ำในระบบนิเวศแห้งลงมาก สิ่งมีชีวิตส่วนใหญ่มีแนวโน้มอย่างไร?", opts: ["จำนวนลดลง", "จำนวนเพิ่มขึ้นทุกชนิด"], ans: "left" },
+                    { q: "เมื่อผู้ล่ามีจำนวนเพิ่มขึ้นมาก เหยื่อของผู้ล่ามีแนวโน้มอย่างไร?", opts: ["ลดลง", "เพิ่มขึ้น"], ans: "left" },
+                    { q: "ข้อใดช่วยรักษาสมดุลของระบบนิเวศได้เหมาะสมกว่า?", opts: ["อนุรักษ์ถิ่นอาศัย", "กำจัดสิ่งมีชีวิตบางชนิดทั้งหมด"], ans: "left" },
+                    { q: "ถ้าพืชในพื้นที่ลดลงมาก ปริมาณอาหารของสัตว์กินพืชจะเป็นอย่างไร?", opts: ["ลดลง", "เพิ่มขึ้น"], ans: "left" },
+                    { q: "การใช้สารกำจัดแมลงมากเกินไปอาจส่งผลต่อสายใยอาหารอย่างไร?", opts: ["รบกวนสมดุลของประชากร", "ทำให้ทุกชนิดเพิ่มขึ้น"], ans: "left" },
+                    { q: "เหตุใดสายใยอาหารจึงช่วยให้เห็นความสัมพันธ์ในระบบนิเวศได้ดีกว่าโซ่อาหารเพียงเส้นเดียว?", opts: ["แสดงการกินที่เชื่อมโยงหลายเส้นทาง", "แสดงเฉพาะผู้ผลิต"], ans: "left" },
+                    { q: "หากสิ่งมีชีวิตชนิดหนึ่งหายไปจากสายใยอาหาร ผลที่เหมาะสมที่สุดคือข้อใด?", opts: ["อาจกระทบสิ่งมีชีวิตหลายชนิด", "ไม่มีผลต่อสิ่งมีชีวิตอื่น"], ans: "left" }
+                ]
+            },
+            5: {
+                title: "ด่านที่ 5: วิเคราะห์ระบบนิเวศ",
+                sub: "🖐️ มือซ้าย = ซ้าย • ✋ มือขวา = ขวา • 🙌 สองมือพร้อมกัน = กลาง",
+                questions: [
+                    { q: "สิ่งมีชีวิตชนิดเดียวกันที่อาศัยอยู่ในบริเวณเดียวกัน ณ ช่วงเวลาเดียวกัน เรียกว่าอะไร?", ans: "ประชากร", opts: ["ประชากร", "กลุ่มสิ่งมีชีวิต", "ระบบนิเวศ"] },
+                    { q: "ประชากรหลายชนิดที่อาศัยและมีความสัมพันธ์กันในบริเวณเดียวกัน เรียกว่าอะไร?", ans: "กลุ่มสิ่งมีชีวิต", opts: ["ประชากร", "กลุ่มสิ่งมีชีวิต", "ชีวมณฑล"] },
+                    { q: "ระบบนิเวศประกอบด้วยองค์ประกอบสำคัญใด?", ans: "สิ่งมีชีวิตและสิ่งไม่มีชีวิต", opts: ["สิ่งมีชีวิตเท่านั้น", "สิ่งไม่มีชีวิตเท่านั้น", "สิ่งมีชีวิตและสิ่งไม่มีชีวิต"] },
+                    { q: "ลูกศรในโซ่อาหารแสดงสิ่งใด?", ans: "ทิศทางการถ่ายทอดพลังงาน", opts: ["ทิศทางการถ่ายทอดพลังงาน", "ทิศทางการเดินของสัตว์", "จำนวนสิ่งมีชีวิต"] },
+                    { q: "เหตุใดพลังงานจึงลดลงเมื่อถ่ายทอดไปยังลำดับการกินที่สูงขึ้น?", ans: "พลังงานส่วนหนึ่งสูญเสียเป็นความร้อน", opts: ["พลังงานส่วนหนึ่งสูญเสียเป็นความร้อน", "พลังงานถูกสร้างเพิ่มทุกลำดับ", "ผู้บริโภคไม่ใช้พลังงาน"] },
+                    { q: "ถ้าผู้ล่าหายไปจากระบบนิเวศ เหยื่อมีแนวโน้มเปลี่ยนแปลงอย่างไร?", ans: "จำนวนเพิ่มขึ้น", opts: ["จำนวนเพิ่มขึ้น", "จำนวนลดลงทันที", "ไม่มีการเปลี่ยนแปลงเสมอ"] },
+                    { q: "ข้อใดเป็นปัจจัยไม่มีชีวิตในระบบนิเวศ?", ans: "แสง น้ำ และอุณหภูมิ", opts: ["พืช สัตว์ และจุลินทรีย์", "แสง น้ำ และอุณหภูมิ", "ผู้ผลิต ผู้บริโภค และผู้ย่อยสลาย"] },
+                    { q: "การสะสมสารพิษที่มีความเข้มข้นสูงขึ้นตามลำดับขั้นการกินเรียกว่าอะไร?", ans: "การเพิ่มความเข้มข้นทางชีวภาพ", opts: ["การสังเคราะห์ด้วยแสง", "การเพิ่มความเข้มข้นทางชีวภาพ", "การย่อยสลาย"] },
+                    { q: "ข้อใดช่วยรักษาสมดุลของระบบนิเวศได้เหมาะสมที่สุด?", ans: "อนุรักษ์ถิ่นอาศัยและลดมลพิษ", opts: ["กำจัดผู้ล่าทั้งหมด", "อนุรักษ์ถิ่นอาศัยและลดมลพิษ", "เพิ่มการใช้สารเคมี"] },
+                    { q: "ระดับการจัดระบบที่รวมกลุ่มสิ่งมีชีวิตและสิ่งแวดล้อมทางกายภาพไว้ด้วยกันคืออะไร?", ans: "ระบบนิเวศ", opts: ["ประชากร", "ระบบนิเวศ", "สิ่งมีชีวิต"] },
+                    { q: "หญ้า → ตั๊กแตน → กบ → งู หากจำนวนกบลดลงมาก ตั๊กแตนมีแนวโน้มอย่างไร?", ans: "เพิ่มขึ้น", opts: ["เพิ่มขึ้น", "ลดลง", "สูญพันธุ์ทันที"] },
+                    { q: "ถ้าผู้ผลิตในระบบนิเวศลดลงอย่างมาก สิ่งใดมีแนวโน้มเกิดขึ้น?", ans: "ผู้บริโภคมีอาหารลดลง", opts: ["ผู้บริโภคมีอาหารลดลง", "ผู้บริโภคมีอาหารเพิ่มขึ้น", "พลังงานในระบบเพิ่มขึ้น"] },
+                    { q: "สิ่งมีชีวิตกลุ่มใดช่วยคืนแร่ธาตุจากซากสิ่งมีชีวิตกลับสู่สิ่งแวดล้อม?", ans: "ผู้ย่อยสลาย", opts: ["ผู้ผลิต", "ผู้ล่า", "ผู้ย่อยสลาย"] },
+                    { q: "หลายโซ่อาหารที่เชื่อมโยงสัมพันธ์กันในระบบนิเวศเรียกว่าอะไร?", ans: "สายใยอาหาร", opts: ["สายใยอาหาร", "ประชากร", "ถิ่นที่อยู่"] },
+                    { q: "ถ้าสิ่งมีชีวิตชนิดหนึ่งหายไปจากสายใยอาหาร ผลใดมีโอกาสเกิดขึ้น?", ans: "กระทบสิ่งมีชีวิตหลายชนิด", opts: ["กระทบสิ่งมีชีวิตหลายชนิด", "ไม่มีผลต่อชนิดอื่น", "ทำให้ผู้ผลิตเพิ่มขึ้นเสมอ"] },
+                    { q: "ความสัมพันธ์ระหว่างงูกับหนูที่งูกินหนูเป็นอาหาร จัดเป็นความสัมพันธ์แบบใด?", ans: "ล่าเหยื่อ", opts: ["อิงอาศัย", "ล่าเหยื่อ", "แข่งขัน"] },
+                    { q: "กล้วยไม้อาศัยเกาะบนต้นไม้ใหญ่โดยไม่ทำอันตรายต่อต้นไม้ เป็นความสัมพันธ์แบบใด?", ans: "อิงอาศัย", opts: ["ปรสิต", "อิงอาศัย", "ล่าเหยื่อ"] },
+                    { q: "ต้นข้าวกับวัชพืชในนาที่ต้องการแสง น้ำ และแร่ธาตุเหมือนกัน เป็นความสัมพันธ์แบบใด?", ans: "แข่งขัน", opts: ["แข่งขัน", "เป็นกลาง", "พึ่งพา"] },
+                    { q: "พยาธิอาศัยอยู่ในลำไส้คน เป็นความสัมพันธ์แบบใด?", ans: "ปรสิต", opts: ["ได้ประโยชน์ร่วม", "ปรสิต", "อิงอาศัย"] },
+                    { q: "การรักษาความหลากหลายทางชีวภาพมีประโยชน์ต่อระบบนิเวศอย่างไร?", ans: "ช่วยให้ระบบนิเวศมีความยืดหยุ่นและสมดุล", opts: ["ช่วยให้ระบบนิเวศมีความยืดหยุ่นและสมดุล", "ทำให้เหลือสิ่งมีชีวิตชนิดเดียว", "ทำให้ไม่เกิดการแข่งขันเลย"] }
+                ]
+            }
+        };
+
+        let pose = null;
+        let hands = null;
+        let handsBusy = false;
+        let level3ItemIndex = 0;
+        let fallbackAnimFrame = null;
+
+        function getScreens() {
+            return {
+                welcome: document.getElementById('screenWelcome'),
+                cameraCheck: document.getElementById('screenCameraCheck'),
+                game: document.getElementById('screenGame'),
+                result: document.getElementById('screenLevelResult'),
+                certificate: document.getElementById('screenCertificate')
+            };
+        }
+
+        function showScreen(screenKey) {
+            const screens = getScreens();
+            Object.keys(screens).forEach(key => {
+                if (screens[key]) {
+                    if (key === screenKey) {
+                        screens[key].classList.remove('hidden');
+                    } else {
+                        screens[key].classList.add('hidden');
+                    }
+                }
+            });
+        }
+
+        function goToWelcome() {
+            stopCamera();
+            state.isPlaying = false;
+            state.isCountingDown = false;
+            state.countdownToken = (state.countdownToken || 0) + 1;
+            if (state.timerInterval) clearInterval(state.timerInterval);
+            if (state.countdownInterval) clearInterval(state.countdownInterval);
+            const countdownOverlay = document.getElementById('levelCountdownOverlay');
+            if (countdownOverlay) countdownOverlay.classList.add('hidden');
+            showScreen('welcome');
+        }
+
+        function goToCameraCheck() {
+            const nameInput = document.getElementById('playerNameInput');
+            if (nameInput && nameInput.value.trim() !== '') {
+                state.playerName = nameInput.value.trim();
+            }
+            showScreen('cameraCheck');
+            prepareThaiCanvasFont().then(() => {
+                initCamera(document.getElementById('webcamCheck'), document.getElementById('canvasCheck'), false);
+            });
+        }
+
+        function quickSelectLevel(levelNum) {
+            const nameInput = document.getElementById('playerNameInput');
+            if (nameInput && nameInput.value.trim() !== '') {
+                state.playerName = nameInput.value.trim();
+            }
+            startLevel(levelNum);
+        }
+
+        function selectLevelInCheck(levelNum) {
+            for (let i = 1; i <= 5; i++) {
+                const btn = document.getElementById(`btnSelectLvl${i}`);
+                if (btn) {
+                    if (i === levelNum) {
+                        btn.className = "px-3 py-1 rounded-xl font-bold text-xs bg-teal-500 text-white shadow";
+                    } else {
+                        btn.className = "px-3 py-1 rounded-xl font-bold text-xs bg-slate-200 text-slate-700 hover:bg-teal-100";
+                    }
+                }
+            }
+            const btnStart = document.getElementById('btnStartGame');
+            if (btnStart) {
+                btnStart.setAttribute('onclick', `startLevel(${levelNum})`);
+                btnStart.innerHTML = `พร้อมแล้ว! เริ่มเล่นด่านที่ ${levelNum} <i class="fa-solid fa-play ml-2"></i>`;
+            }
+        }
+
+        // Randomize every level each time it starts/restarts so players cannot memorize answer order.
+        function shuffleArrayInPlace(arr) {
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr;
+        }
+
+        function randomizeLevelForNewAttempt(levelNum) {
+            const data = levelData[levelNum];
+            if (!data) return;
+
+            // Shuffle question/item order for all five levels.
+            if (Array.isArray(data.items)) shuffleArrayInPlace(data.items);
+            if (Array.isArray(data.questions)) shuffleArrayInPlace(data.questions);
+
+            // Also shuffle answer positions where the level supports choices.
+            if (levelNum === 2 || levelNum === 5) {
+                data.questions.forEach(q => {
+                    if (Array.isArray(q.opts)) shuffleArrayInPlace(q.opts);
+                });
+            }
+
+            // Level 4 stores the correct answer as left/right, so preserve correctness
+            // while randomly swapping the two answer cards.
+            if (levelNum === 4) {
+                data.questions.forEach(q => {
+                    if (Array.isArray(q.opts) && q.opts.length === 2 && Math.random() < 0.5) {
+                        [q.opts[0], q.opts[1]] = [q.opts[1], q.opts[0]];
+                        q.ans = (q.ans === 'left') ? 'right' : 'left';
+                    }
+                });
+            }
+        }
+
+        function startLevel(levelNum) {
+            stopGameplayMusic();
+            // Cancel any old timer/countdown before a new attempt starts.
+            if (state.timerInterval) {
+                clearInterval(state.timerInterval);
+                state.timerInterval = null;
+            }
+            if (state.countdownInterval) {
+                clearInterval(state.countdownInterval);
+                state.countdownInterval = null;
+            }
+            state.countdownToken = (state.countdownToken || 0) + 1;
+            const myCountdownToken = state.countdownToken;
+
+            // Every new attempt (including Retry) gets a newly shuffled question set.
+            randomizeLevelForNewAttempt(levelNum);
+            state.currentLevel = levelNum;
+            state.currentQuestionIndex = 0;
+            state.totalQuestions = levelNum === 3
+                ? 20
+                : levelNum === 1
+                ? levelData[levelNum].items.length
+                : (levelData[levelNum].questions ? levelData[levelNum].questions.length : 10);
+            state.scores[`level${levelNum}`] = 0;
+            state.timer = 200;
+
+            // IMPORTANT: gameplay is disabled during countdown.
+            // This prevents answers from being accepted and prevents the level timer from running.
+            state.isPlaying = false;
+            state.isCountingDown = true;
+            state.isWaitingNext = false;
+            state.fallingItems = [];
+            state.interactiveBubbles = [];
+            state.level4Options = [];
+            if (levelNum === 5) {
+                state.level5Mission = { energy: 0, combo: 0, stars: 0, flashUntil: 0, flashX: 0, flashY: 0 };
+                state.level5Arm = { leftRaised: false, rightRaised: false, gesture: 'neutral', targetIndex: -1, since: 0, requireNeutral: true };
+                state.punch = {
+                    left:  { prevX: 0, prevY: 0, prevZ: 0, prevT: 0, speed: 0, zSpeed: 0, hitAt: 0, armed: false, armAt: 0, fist: false, fistSeenAt: 0 },
+                    right: { prevX: 0, prevY: 0, prevZ: 0, prevT: 0, speed: 0, zSpeed: 0, hitAt: 0, armed: false, armAt: 0, fist: false, fistSeenAt: 0 },
+                    sequence: { firstSide: null, targetIndex: -1, at: 0 },
+                    cooldownUntil: 0
+                };
+            }
+
+            const data = levelData[levelNum];
+            document.getElementById('hudLevelBadge').innerText = `ด่านที่ ${levelNum}`;
+            document.getElementById('hudLevelTitle').innerText = data.title;
+            document.getElementById('hudLevelSub').innerText = data.sub;
+            const levelNameBanner = document.getElementById('hudPromptBanner');
+            if (levelNameBanner) levelNameBanner.innerText = data.title;
+            document.getElementById('hudScore').innerText = `ตอบถูก 0 / ${state.totalQuestions}`;
+            document.getElementById('hudTimer').innerText = `${state.timer}s`;
+
+            showScreen('game');
+            prepareThaiCanvasFont().then(() => {
+                initCamera(document.getElementById('webcamGame'), document.getElementById('canvasGame'), true);
+            });
+
+            const overlay = document.getElementById('levelCountdownOverlay');
+            const numberEl = document.getElementById('levelCountdownNumber');
+            const textEl = document.getElementById('levelCountdownText');
+            const emojiEl = document.getElementById('levelCountdownEmoji');
+            if (overlay) overlay.classList.remove('hidden');
+
+            const countdownEmojis = ['🌿✨', '🐝🌼', '🐠🫧', '🦋🌱', '🌍💫'];
+            if (emojiEl) emojiEl.innerText = countdownEmojis[(levelNum - 1) % countdownEmojis.length];
+
+            // READY phase: show the rules first. No timer/questions/answers are active yet.
+            const readyInstructions = {
+                1: '🖐️ มือซ้าย = ระบบนิเวศบนบก  •  ✋ มือขวา = ระบบนิเวศในน้ำ',
+                2: '🫧 ยื่นมือแตะค้างที่ฟองคำตอบที่ต้องการเลือก',
+                3: '🔥 ใช้มือขวาจับฟองอากาศฟองที่คิดว่าถูกให้ครบ 20 ครั้ง • ปล่อยผ่านไม่นับ',
+                4: '🚶 เดินซ้าย–ขวา ใช้ลำตัวจับกล่องคำตอบ • มือไม่ใช้ตอบ',
+                5: '🖐️ มือซ้าย = ซ้าย  •  🙌 สองมือ = กลาง  •  ✋ มือขวา = ขวา'
+            };
+
+            ensureGameAudio();
+            if (numberEl) { numberEl.innerText = '🙌'; numberEl.classList.remove('text-purple-600'); numberEl.classList.add('text-amber-500'); }
+            if (emojiEl) emojiEl.innerText = countdownEmojis[(levelNum - 1) % countdownEmojis.length];
+            if (textEl) textEl.innerHTML = `<div class="mb-2">${readyInstructions[levelNum]}</div><div class="text-teal-700 font-black">อ่านกติกาแล้ว ยกมือทั้งสองข้างขึ้นสูงเพื่อ READY 🙌</div>`;
+            startReadyMusic();
+
+            let readyRaisedSince = 0;
+            let waitingForHandsDown = false;
+            let readyWatcher = null;
+
+            function beginActualLevel() {
+                if (myCountdownToken !== state.countdownToken) return;
+                stopReadyMusic();
+                state.isCountingDown = false;
+                state.isPlaying = true;
+                startGameplayMusic();
+                if (overlay) overlay.classList.add('hidden');
+
+                if (levelNum === 1) spawnLevel1Item();
+                else if (levelNum === 2) loadLevel2Question();
+                else if (levelNum === 3) spawnLevel3Bubbles();
+                else if (levelNum === 4) loadLevel4Question();
+                else if (levelNum === 5) loadLevel5Question();
+
+                state.timerInterval = setInterval(() => {
+                    if (!state.isPlaying || state.isCountingDown) return;
+                    state.timer--;
+                    document.getElementById('hudTimer').innerText = `${state.timer}s`;
+                    if (state.timer <= 0) {
+                        clearInterval(state.timerInterval);
+                        state.timerInterval = null;
+                        endLevel();
+                    }
+                }, 1000);
+            }
+
+            function startFiveSecondCountdown() {
+                stopReadyMusic();
+                playReadyConfirmedSound();
+                if (numberEl) { numberEl.classList.remove('text-amber-500'); numberEl.classList.add('text-purple-600'); }
+                let count = 5;
+                if (numberEl) numberEl.innerText = count;
+                if (textEl) textEl.innerText = 'พร้อมแล้ว! เตรียมเริ่มภารกิจ';
+                playCountdownSound(5);
+
+                state.countdownInterval = setInterval(() => {
+                    if (myCountdownToken !== state.countdownToken) {
+                        clearInterval(state.countdownInterval);
+                        state.countdownInterval = null;
+                        return;
+                    }
+                    count--;
+                    if (count > 0) {
+                        if (numberEl) numberEl.innerText = count;
+                        playCountdownSound(count);
+                        if (textEl) textEl.innerText = count <= 2 ? 'พร้อมนะ... เตรียมเริ่มภารกิจ!' : 'ยืนให้กล้องเห็นร่างกายชัดเจน';
+                    } else {
+                        clearInterval(state.countdownInterval);
+                        state.countdownInterval = null;
+                        if (numberEl) numberEl.innerText = '🚀';
+                        if (emojiEl) emojiEl.innerText = '🌟🎮🌿';
+                        playStartMissionSound();
+                        if (textEl) {
+                            textEl.innerText = 'เริ่มภารกิจกันเลย! 🎉✨';
+                            textEl.classList.add('text-emerald-600');
+                        }
+                        setTimeout(() => {
+                            if (textEl) textEl.classList.remove('text-emerald-600');
+                            beginActualLevel();
+                        }, 850);
+                    }
+                }, 1000);
+            }
+
+            // Wait indefinitely while the child reads. Raise both hands for ~0.7 s, then lower them.
+            readyWatcher = setInterval(() => {
+                if (myCountdownToken !== state.countdownToken) { clearInterval(readyWatcher); stopReadyMusic(); return; }
+                const bothUp = state.level5Arm && state.level5Arm.gesture === 'both';
+                const neutral = state.level5Arm && state.level5Arm.gesture === 'neutral';
+                const now = performance.now();
+
+                if (!waitingForHandsDown) {
+                    if (bothUp) {
+                        if (!readyRaisedSince) readyRaisedSince = now;
+                        const progress = Math.min(1, (now - readyRaisedSince) / 700);
+                        if (textEl) textEl.innerHTML = `<div class="mb-2">${readyInstructions[levelNum]}</div><div class="text-emerald-600 font-black">กำลัง READY ${Math.round(progress * 100)}% 🙌</div>`;
+                        if (progress >= 1) {
+                            waitingForHandsDown = true;
+                            playReadyConfirmedSound();
+                            if (numberEl) numberEl.innerText = '✅';
+                            if (textEl) textEl.innerHTML = '<div class="text-emerald-600 font-black text-xl">พร้อมแล้ว! ลดมือทั้งสองข้างลง 👇</div><div class="mt-1 text-slate-600">เมื่อลดมือแล้วจะเริ่มนับ 5–4–3–2–1</div>';
+                        }
+                    } else {
+                        readyRaisedSince = 0;
+                    }
+                } else if (neutral) {
+                    clearInterval(readyWatcher);
+                    readyWatcher = null;
+                    startFiveSecondCountdown();
+                }
+            }, 80);
+        }
+
+        function advanceQuestionWithDelay(nextFn, delay) {
+            state.isWaitingNext = true;
+            setTimeout(() => {
+                state.isWaitingNext = false;
+                state.currentQuestionIndex++;
+                if (state.currentQuestionIndex >= state.totalQuestions) {
+                    endLevel();
+                } else {
+                    nextFn();
+                }
+            }, delay);
+        }
+
+        function isPointInRect(point, rect) {
+            if (!point || !point.detected) return false;
+            return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height;
+        }
+
+        function checkDistance(p1, p2, threshold) {
+            const dx = p1.x - p2.x; const dy = p1.y - p2.y;
+            return Math.sqrt(dx * dx + dy * dy) < threshold;
+        }
+
+        // Robust Thai-aware canvas wrapping. The old version only split on spaces,
+        // which can make Thai sentences overflow their cards/bubbles and appear to disappear.
+        function wrapText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 4) {
+            if (!text) return 0;
+            text = String(text);
+
+            // Prefer Thai word segmentation when the browser supports Intl.Segmenter.
+            let tokens;
+            try {
+                if (window.Intl && Intl.Segmenter) {
+                    const segmenter = new Intl.Segmenter('th', { granularity: 'word' });
+                    tokens = Array.from(segmenter.segment(text), s => s.segment);
+                }
+            } catch (e) {}
+
+            if (!tokens || !tokens.length) {
+                tokens = text.split(/(\s+)/).filter(Boolean);
+            }
+
+            // A Thai segment can itself be wider than the card on small phones.
+            // Split any over-wide segment by grapheme/character so text can never escape the box.
+            const safeTokens = [];
+            for (const token of tokens) {
+                if (ctx.measureText(token).width <= maxWidth) {
+                    safeTokens.push(token);
+                    continue;
+                }
+                let chunk = '';
+                for (const ch of Array.from(token)) {
+                    const test = chunk + ch;
+                    if (chunk && ctx.measureText(test).width > maxWidth) {
+                        safeTokens.push(chunk);
+                        chunk = ch;
+                    } else {
+                        chunk = test;
+                    }
+                }
+                if (chunk) safeTokens.push(chunk);
+            }
+
+            const lines = [];
+            let line = '';
+            for (const token of safeTokens) {
+                const testLine = line + token;
+                if (ctx.measureText(testLine).width <= maxWidth) {
+                    line = testLine;
+                } else {
+                    if (line.trim()) lines.push(line.trim());
+                    line = token.trimStart();
+                }
+            }
+            if (line) lines.push(line.trim());
+
+            const visibleLines = lines.slice(0, maxLines);
+            if (lines.length > maxLines && visibleLines.length) {
+                let last = visibleLines[visibleLines.length - 1];
+                while (last.length && ctx.measureText(last + '…').width > maxWidth) {
+                    last = last.slice(0, -1);
+                }
+                visibleLines[visibleLines.length - 1] = last + '…';
+            }
+
+            visibleLines.forEach((ln, i) => ctx.fillText(ln, x, y + i * lineHeight));
+            return visibleLines.length;
+        }
+
+        function setCanvasFont(ctx, weight, size) {
+            ctx.font = `${weight} ${size}px \'Prompt\', \'Noto Sans Thai\', Tahoma, Arial, sans-serif`;
+        }
+
+
+        // Mobile readability: fit Thai text to the largest safe size inside its own box.
+        function getWrappedLines(ctx, text, maxWidth) {
+            text = String(text ?? '');
+            let tokens;
+            try {
+                if (window.Intl && Intl.Segmenter) {
+                    const segmenter = new Intl.Segmenter('th', { granularity: 'word' });
+                    tokens = Array.from(segmenter.segment(text), s => s.segment);
+                }
+            } catch (e) {}
+            if (!tokens || !tokens.length) tokens = text.split(/(\s+)/).filter(Boolean);
+            const safe = [];
+            for (const token of tokens) {
+                if (ctx.measureText(token).width <= maxWidth) { safe.push(token); continue; }
+                let chunk = '';
+                for (const ch of Array.from(token)) {
+                    const test = chunk + ch;
+                    if (chunk && ctx.measureText(test).width > maxWidth) { safe.push(chunk); chunk = ch; }
+                    else chunk = test;
+                }
+                if (chunk) safe.push(chunk);
+            }
+            const lines=[]; let line='';
+            for (const token of safe) {
+                const test=line+token;
+                if (ctx.measureText(test).width <= maxWidth) line=test;
+                else { if (line.trim()) lines.push(line.trim()); line=token.trimStart(); }
+            }
+            if (line.trim()) lines.push(line.trim());
+            return lines;
+        }
+
+        function drawAutoFitText(ctx, text, x, centerY, maxWidth, maxHeight, opts={}) {
+            const weight = opts.weight || '800';
+            const maxSize = opts.maxSize || 24;
+            const minSize = opts.minSize || 10;
+            const maxLines = opts.maxLines || 4;
+            const color = opts.color || '#0F172A';
+            const align = opts.align || 'center';
+            let best = null;
+            for (let size=maxSize; size>=minSize; size--) {
+                setCanvasFont(ctx, weight, size);
+                const lines=getWrappedLines(ctx,text,maxWidth);
+                const lineHeight=Math.ceil(size*1.22);
+                if (lines.length<=maxLines && lines.length*lineHeight<=maxHeight) { best={size,lines,lineHeight}; break; }
+            }
+            if (!best) {
+                setCanvasFont(ctx, weight, minSize);
+                let lines=getWrappedLines(ctx,text,maxWidth).slice(0,maxLines);
+                best={size:minSize,lines,lineHeight:Math.ceil(minSize*1.18)};
+            }
+            setCanvasFont(ctx, weight, best.size);
+            ctx.fillStyle=color; ctx.textAlign=align; ctx.textBaseline='middle';
+            const total=best.lines.length*best.lineHeight;
+            const start=centerY-total/2+best.lineHeight/2;
+            best.lines.forEach((line,i)=>ctx.fillText(line,x,start+i*best.lineHeight));
+            return best.size;
+        }
+
+        // Make sure the Thai font is requested before the first gameplay frame.
+        let thaiFontReady = false;
+        function prepareThaiCanvasFont() {
+            if (thaiFontReady) return Promise.resolve();
+            if (document.fonts && document.fonts.load) {
+                return Promise.all([
+                    document.fonts.load('800 28px Prompt'),
+                    document.fonts.load('800 24px Prompt'),
+                    document.fonts.load('800 20px Prompt'),
+                    document.fonts.load('800 19px Prompt')
+                ]).catch(() => {}).then(() => { thaiFontReady = true; });
+            }
+            thaiFontReady = true;
+            return Promise.resolve();
+        }
+
+        function updatePromptText(text) {
+            const banner = document.getElementById('hudPromptBanner');
+            const bannerMob = document.getElementById('hudPromptBannerMobile');
+            const levelTitle = (levelData[state.currentLevel] && levelData[state.currentLevel].title) ? levelData[state.currentLevel].title : text;
+            if (banner) banner.innerText = levelTitle;
+            if (bannerMob) bannerMob.innerText = levelTitle;
+        }
+
+        function initCamera(videoElement, canvasElement, isGame) {
+            stopCamera();
+
+            if (window.location.protocol === 'file:') {
+                const notice = document.getElementById('fileProtocolNotice');
+                if (notice) notice.classList.remove('hidden');
+            }
+
+            if (!pose && window.Pose) {
+                pose = new Pose({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+                });
+                pose.setOptions({
+                    modelComplexity: 1,
+                    smoothLandmarks: true,
+                    enableSegmentation: false,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+                pose.onResults((results) => onPoseResults(results, canvasElement, isGame));
+            }
+
+            // MediaPipe Hands is used only to verify a CLOSED FIST in Level 5.
+            // Pose alone cannot distinguish an open palm from a fist.
+            if (!hands && window.Hands) {
+                hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+                hands.setOptions({ maxNumHands: 2, modelComplexity: 0, minDetectionConfidence: 0.65, minTrackingConfidence: 0.65 });
+                hands.onResults((results) => {
+                    handsBusy = false;
+                    const now = performance.now();
+                    // Do not keep stale fist states. They must be refreshed continuously.
+                    state.punch.left.fist = false;
+                    state.punch.right.fist = false;
+                    const list = results.multiHandLandmarks || [];
+                    function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z); }
+                    function isClosedFist(lm) {
+                        if (!lm || lm.length < 21) return false;
+                        const wrist=lm[0];
+                        // Four fingers count as curled when each fingertip folds closer to the wrist than its PIP joint.
+                        const pairs=[[8,6],[12,10],[16,14],[20,18]];
+                        let curled=0;
+                        for (const [tip,pip] of pairs) if (dist(lm[tip],wrist) < dist(lm[pip],wrist)*1.08) curled++;
+                        const palmWidth=Math.max(0.025,dist(lm[5],lm[17]));
+                        const palmCenter={x:(lm[0].x+lm[5].x+lm[9].x+lm[13].x+lm[17].x)/5,y:(lm[0].y+lm[5].y+lm[9].y+lm[13].y+lm[17].y)/5,z:(lm[0].z+lm[5].z+lm[9].z+lm[13].z+lm[17].z)/5};
+                        const compact = [8,12,16,20].reduce((a,i)=>a+dist(lm[i],palmCenter),0)/4 < palmWidth*1.75;
+                        return curled >= 3 && compact;
+                    }
+                    const cw = document.getElementById('canvasGame')?.width || window.innerWidth;
+                    const ch = document.getElementById('canvasGame')?.height || window.innerHeight;
+                    for (const lm of list) {
+                        if (!isClosedFist(lm)) continue;
+                        const hx=(1-lm[9].x)*cw, hy=lm[9].y*ch;
+                        // Assign each detected fist to the nearest Pose wrist; this is more reliable with mirrored video.
+                        const dl=state.leftHandPos.detected?Math.hypot(hx-state.leftHandPos.x,hy-state.leftHandPos.y):1e9;
+                        const dr=state.rightHandPos.detected?Math.hypot(hx-state.rightHandPos.x,hy-state.rightHandPos.y):1e9;
+                        const side=dl<=dr?'left':'right';
+                        state.punch[side].fist=true; state.punch[side].fistSeenAt=now;
+                    }
+                });
+            }
+
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } })
+                    .then((stream) => {
+                        state.cameraStream = stream;
+                        if (videoElement) {
+                            videoElement.srcObject = stream;
+                            videoElement.onloadedmetadata = () => {
+                                videoElement.play();
+                                state.cameraActive = true;
+                                const updateBadge = document.getElementById('statusBadgeText');
+                                if (updateBadge) updateBadge.innerText = "กล้องทำงานปกติ / ติดตามร่างกายแล้ว";
+
+                                async function sendFrame() {
+                                    if (state.cameraActive && videoElement.readyState >= 2 && pose) {
+                                        try { await pose.send({ image: videoElement }); } catch(e){}
+                                        // Level 5 uses Pose wrist positions as palm cursors; no hand-shape recognition is needed.
+                                    }
+                                    if (state.cameraActive) {
+                                        requestAnimationFrame(sendFrame);
+                                    }
+                                }
+                                sendFrame();
+                            };
+                        }
+                    })
+                    .catch((err) => {
+                        console.warn("Camera access denied or unequipped:", err);
+                        state.cameraActive = false;
+                        const updateBadge = document.getElementById('statusBadgeText');
+                        if (updateBadge) updateBadge.innerText = "ไม่พบกล้อง (สามารถใช้เมาส์/สัมผัสเล่นแทนได้)";
+                        showToast("ไม่พบกล้อง สามารถใช้เมาส์หรือแตะสัมผัสหน้าจอเพื่อตอบคำถามได้เลย!", "🖱️");
+                        startCanvasFallbackLoop(canvasElement, isGame);
+                    });
+            } else {
+                startCanvasFallbackLoop(canvasElement, isGame);
+            }
+        }
+
+        function isMobileLandscape() {
+            return window.innerWidth <= 950 && window.innerWidth > window.innerHeight;
+        }
+        function syncGameViewport() {
+            ['canvasCheck', 'canvasGame'].forEach(id => {
+                const c = document.getElementById(id);
+                if (c) {
+                    const rect = c.getBoundingClientRect();
+                    c.width = Math.max(1, Math.round(rect.width || window.innerWidth));
+                    c.height = Math.max(1, Math.round(rect.height || window.innerHeight));
+                }
+            });
+            // Rebuild position-sensitive answer objects after a phone rotation/resize.
+            if (state && state.isPlaying && !state.isWaitingNext) {
+                if (state.currentLevel === 2) loadLevel2Question();
+                else if (state.currentLevel === 4) loadLevel4Question();
+                else if (state.currentLevel === 5) loadLevel5Question();
+            }
+        }
+        window.addEventListener('resize', () => setTimeout(syncGameViewport, 80));
+        window.addEventListener('orientationchange', () => setTimeout(syncGameViewport, 260));
+        if (window.visualViewport) window.visualViewport.addEventListener('resize', () => setTimeout(syncGameViewport, 80));
+
+        function stopCamera() {
+            state.cameraActive = false;
+            if (fallbackAnimFrame) {
+                cancelAnimationFrame(fallbackAnimFrame);
+                fallbackAnimFrame = null;
+            }
+            if (state.cameraStream) {
+                state.cameraStream.getTracks().forEach(track => track.stop());
+                state.cameraStream = null;
+            }
+        }
+
+        function startCanvasFallbackLoop(canvasElement, isGame) {
+            if (fallbackAnimFrame) cancelAnimationFrame(fallbackAnimFrame);
+
+            function loop() {
+                if (canvasElement) {
+                    const ctx = canvasElement.getContext('2d');
+                    const w = canvasElement.width = canvasElement.clientWidth || window.innerWidth;
+                    const h = canvasElement.height = canvasElement.clientHeight || window.innerHeight;
+                    ctx.clearRect(0, 0, w, h);
+
+                    if (isGame && state.isPlaying) {
+                        if (state.rightHandPos.detected) {
+                            ctx.save(); ctx.beginPath();
+                            ctx.arc(state.rightHandPos.x, state.rightHandPos.y, 18, 0, Math.PI * 2);
+                            ctx.fillStyle = 'rgba(236, 72, 153, 0.7)'; ctx.fill();
+                            ctx.lineWidth = 3; ctx.strokeStyle = '#FFFFFF'; ctx.stroke();
+                            ctx.restore();
+                        }
+                        updateAndRenderGameCycle(ctx);
+                    }
+                }
+                fallbackAnimFrame = requestAnimationFrame(loop);
+            }
+            loop();
+        }
+
+        function onPoseResults(results, canvasElement, isGame) {
+            if (!canvasElement) return;
+            const ctx = canvasElement.getContext('2d');
+            const w = canvasElement.width = canvasElement.clientWidth || window.innerWidth;
+            const h = canvasElement.height = canvasElement.clientHeight || window.innerHeight;
+
+            ctx.clearRect(0, 0, w, h);
+
+            if (results.poseLandmarks) {
+                const landmarks = results.poseLandmarks;
+                const leftWrist = landmarks[15];
+                const rightWrist = landmarks[16];
+                const nose = landmarks[0];
+                const leftShoulder = landmarks[11];
+                const rightShoulder = landmarks[12];
+
+                // Track wrist velocity for Level 5 Punch Challenge.
+                // A punch can be detected from a quick 2D wrist movement OR a clear movement toward the camera (z).
+                const nowPose = performance.now();
+                function updatePunchTracker(side, wrist, px, py) {
+                    const tr = state.punch[side];
+                    if (tr.prevT > 0) {
+                        const dt = Math.max(12, nowPose - tr.prevT);
+                        const dx = px - tr.prevX, dy = py - tr.prevY;
+                        tr.speed = Math.hypot(dx, dy) / dt * 1000; // pixels/second
+                        tr.zSpeed = (tr.prevZ - (wrist.z || 0)) / dt * 1000; // positive = toward camera
+                    }
+                    tr.prevX = px; tr.prevY = py; tr.prevZ = wrist.z || 0; tr.prevT = nowPose;
+                }
+
+                if (leftWrist && leftWrist.visibility > 0.4) {
+                    const px = (1 - leftWrist.x) * w, py = leftWrist.y * h;
+                    updatePunchTracker('left', leftWrist, px, py);
+                    state.leftHandPos = { x: px, y: py, detected: true };
+                } else { state.leftHandPos.detected = false; state.punch.left.speed = 0; state.punch.left.zSpeed = 0; }
+
+                if (rightWrist && rightWrist.visibility > 0.4) {
+                    const px = (1 - rightWrist.x) * w, py = rightWrist.y * h;
+                    updatePunchTracker('right', rightWrist, px, py);
+                    state.rightHandPos = { x: px, y: py, detected: true };
+                } else { state.rightHandPos.detected = false; state.punch.right.speed = 0; state.punch.right.zSpeed = 0; }
+
+                if (nose && nose.visibility > 0.4) {
+                    state.headPos = { x: (1 - nose.x) * w, y: nose.y * h, detected: true };
+                } else { state.headPos.detected = false; }
+
+                if (leftShoulder && rightShoulder && leftShoulder.visibility > 0.4 && rightShoulder.visibility > 0.4) {
+                    const midShoulderX = (1 - ((leftShoulder.x + rightShoulder.x) / 2)) * w;
+                    const midShoulderY = ((leftShoulder.y + rightShoulder.y) / 2) * h;
+                    state.bodyCenterPos = { x: midShoulderX, y: midShoulderY, detected: true };
+                    const threshold = w * 0.12;
+                    if (midShoulderX < (w / 2) - threshold) {
+                        state.bodyLeanAngle = -1;
+                    } else if (midShoulderX > (w / 2) + threshold) {
+                        state.bodyLeanAngle = 1;
+                    } else {
+                        state.bodyLeanAngle = 0;
+                    }
+                } else { state.bodyCenterPos.detected = false; }
+
+                // Level 5: arm-raise gesture from MediaPipe Pose only (no hand-shape sensor).
+                // A wrist must be clearly above its shoulder to count as a raised arm.
+                if (leftShoulder && rightShoulder && leftWrist && rightWrist &&
+                    leftShoulder.visibility > 0.45 && rightShoulder.visibility > 0.45 &&
+                    leftWrist.visibility > 0.45 && rightWrist.visibility > 0.45) {
+                    const marginY = 0.055;
+                    state.level5Arm.leftRaised = leftWrist.y < (leftShoulder.y - marginY);
+                    state.level5Arm.rightRaised = rightWrist.y < (rightShoulder.y - marginY);
+                    if (state.level5Arm.leftRaised && state.level5Arm.rightRaised) state.level5Arm.gesture = 'both';
+                    else if (state.level5Arm.leftRaised) state.level5Arm.gesture = 'left';
+                    else if (state.level5Arm.rightRaised) state.level5Arm.gesture = 'right';
+                    else state.level5Arm.gesture = 'neutral';
+                } else {
+                    state.level5Arm.leftRaised = false;
+                    state.level5Arm.rightRaised = false;
+                    state.level5Arm.gesture = 'neutral';
+                }
+
+                if (state.leftHandPos.detected) {
+                    ctx.save(); ctx.beginPath();
+                    ctx.arc(state.leftHandPos.x, state.leftHandPos.y, 20, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(16, 185, 129, 0.7)'; ctx.fill();
+                    ctx.lineWidth = 3; ctx.strokeStyle = '#FFFFFF'; ctx.stroke();
+                    ctx.fillStyle = '#FFFFFF'; setCanvasFont(ctx, 'bold', 12); ctx.textAlign = 'center';
+                    ctx.fillText('มือซ้าย', state.leftHandPos.x, state.leftHandPos.y + 4);
+                    ctx.restore();
+                }
+
+                if (state.rightHandPos.detected) {
+                    ctx.save(); ctx.beginPath();
+                    ctx.arc(state.rightHandPos.x, state.rightHandPos.y, 20, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(236, 72, 153, 0.7)'; ctx.fill();
+                    ctx.lineWidth = 3; ctx.strokeStyle = '#FFFFFF'; ctx.stroke();
+                    ctx.fillStyle = '#FFFFFF'; setCanvasFont(ctx, 'bold', 12); ctx.textAlign = 'center';
+                    ctx.fillText('มือขวา', state.rightHandPos.x, state.rightHandPos.y + 4);
+                    ctx.restore();
+                }
+
+                const lBadge = document.getElementById('leftHandBadge');
+                const rBadge = document.getElementById('rightHandBadge');
+                const leanBadge = document.getElementById('bodyLeanBadge');
+                if (lBadge) lBadge.innerHTML = `🖐️ มือซ้าย: <span class="${state.leftHandPos.detected ? 'text-emerald-400' : 'text-yellow-400'} font-bold">${state.leftHandPos.detected ? 'ตรวจพบแล้ว' : 'รอการตรวจจับ'}</span>`;
+                if (rBadge) rBadge.innerHTML = `✋ มือขวา: <span class="${state.rightHandPos.detected ? 'text-pink-400' : 'text-yellow-400'} font-bold">${state.rightHandPos.detected ? 'ตรวจพบแล้ว' : 'รอการตรวจจับ'}</span>`;
+                if (leanBadge) {
+                    let positionTxt = "ตรงกลาง";
+                    if (state.bodyCenterPos.detected && state.bodyCenterPos.x < w * 0.42) positionTxt = "โซนซ้าย";
+                    else if (state.bodyCenterPos.detected && state.bodyCenterPos.x > w * 0.58) positionTxt = "โซนขวา";
+                    leanBadge.innerHTML = `🚶 ตำแหน่งผู้เล่น: <span class="text-teal-300 font-bold">${positionTxt}</span>`;
+                }
+            } else {
+                state.bodyCenterPos.detected = false;
+            }
+
+            if (isGame && state.isPlaying) {
+                updateAndRenderGameCycle(ctx);
+            }
+        }
+
+        window.addEventListener('mousemove', (e) => {
+            state.rightHandPos = { x: e.clientX, y: e.clientY, detected: true };
+        });
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches && e.touches[0]) {
+                state.rightHandPos = { x: e.touches[0].clientX, y: e.touches[0].clientY, detected: true };
+            }
+        });
+        window.addEventListener('mousedown', (e) => {
+            state.rightHandPos = { x: e.clientX, y: e.clientY, detected: true };
+        });
+        window.addEventListener('touchstart', (e) => {
+            if (e.touches && e.touches[0]) {
+                state.rightHandPos = { x: e.touches[0].clientX, y: e.touches[0].clientY, detected: true };
+            }
+        });
+
+        function spawnLevel1Item() {
+            if (state.currentQuestionIndex >= levelData[1].items.length) { endLevel(); return; }
+            const item = levelData[1].items[state.currentQuestionIndex];
+            state.itemTimer = 10;
+            state.fallingItems = [{
+                text: item.text,
+                type: item.type,
+                x: window.innerWidth / 2,
+                y: 200,
+                radius: 80,
+                dwellCount: 0,
+                targetDwell: 20
+            }];
+            updatePromptText("⏱️ ยื่นมือค้างไว้ที่กล่อง 'ระบบนิเวศบนบก' หรือ 'ระบบนิเวศในน้ำ' 1 วินาที!");
+        }
+
+        // Level 1 text is rendered only as DOM overlays; canvas draws the cards only.
+        // This avoids a browser/Canvas Thai-text rendering issue seen on some Windows/Edge setups.
+        function ensureLevel1DomText() {
+            let layer = document.getElementById('level1TextLayer');
+            if (!layer) {
+                layer = document.createElement('div');
+                layer.id = 'level1TextLayer';
+                layer.style.cssText = 'position:fixed;inset:0;z-index:19;pointer-events:none;font-family:Tahoma,"Noto Sans Thai",Arial,sans-serif;';
+                layer.innerHTML = `
+                    <div id="level1QuestionText" style="position:absolute;text-align:center;color:#000;font-weight:800;line-height:1.2;overflow:hidden;box-sizing:border-box;padding:4px 8px;"></div>
+                    <div id="level1LeftText" style="position:absolute;text-align:center;color:#000;font-weight:800;line-height:1.25;">ระบบนิเวศบนบก<br><span style="font-size:17px;font-weight:700;color:#064E3B">ยื่นมือค้างที่กรอบนี้</span></div>
+                    <div id="level1RightText" style="position:absolute;text-align:center;color:#000;font-weight:800;line-height:1.25;">ระบบนิเวศในน้ำ<br><span style="font-size:17px;font-weight:700;color:#701A75">ยื่นมือค้างที่กรอบนี้</span></div>`;
+                document.body.appendChild(layer);
+            }
+            return layer;
+        }
+
+        function canvasToViewportRect(ctx, x, y, width, height) {
+            const rect=ctx.canvas.getBoundingClientRect(), sx=rect.width/ctx.canvas.width, sy=rect.height/ctx.canvas.height;
+            return {left:rect.left+x*sx, top:rect.top+y*sy, width:width*sx, height:height*sy};
+        }
+        function updateLevel1DomText(ctx,item,boxX,boxY,boxW,boxH,boxLeft,boxRight) {
+            const layer=ensureLevel1DomText(); layer.style.display=(state.currentLevel===1&&state.isPlaying)?'block':'none'; layer.style.zIndex='60';
+            const q=document.getElementById('level1QuestionText'),l=document.getElementById('level1LeftText'),r=document.getElementById('level1RightText');
+            const qr=canvasToViewportRect(ctx,boxX,boxY,boxW,boxH),lr=canvasToViewportRect(ctx,boxLeft.x,boxLeft.y,boxLeft.width,boxLeft.height),rr=canvasToViewportRect(ctx,boxRight.x,boxRight.y,boxRight.width,boxRight.height);
+            const mobile = isMobileLandscape();
+            if(q){const itemFs=mobile?(String(item.text).length>18?14:18):23;q.innerHTML=`<div style="font-size:${mobile?12:17}px;margin-bottom:${mobile?1:4}px">คำถามข้อที่ ${state.currentQuestionIndex+1} / ${levelData[1].items.length}:</div><div style="font-size:${itemFs}px;line-height:1.15">${item.text}</div>`;Object.assign(q.style,{left:qr.left+'px',top:qr.top+'px',width:qr.width+'px',height:qr.height+'px',padding:(mobile?'5px 10px':'10px 14px'),display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',textAlign:'center',overflow:'hidden',whiteSpace:'normal',overflowWrap:'anywhere'});}
+            if(l){Object.assign(l.style,{left:lr.left+'px',top:lr.top+'px',width:lr.width+'px',height:lr.height+'px',padding:(mobile?'6px':'10px'),boxSizing:'border-box',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',textAlign:'center',overflow:'hidden',fontSize:(mobile?'17px':'25px')}); const sp=l.querySelector('span'); if(sp) sp.style.fontSize=mobile?'12px':'17px';}
+            if(r){Object.assign(r.style,{left:rr.left+'px',top:rr.top+'px',width:rr.width+'px',height:rr.height+'px',padding:(mobile?'6px':'10px'),boxSizing:'border-box',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',textAlign:'center',overflow:'hidden',fontSize:(mobile?'17px':'25px')}); const sp=r.querySelector('span'); if(sp) sp.style.fontSize=mobile?'12px':'17px';}
+        }
+        function ensureLevel4DomText(){
+            let layer=document.getElementById('level4TextLayer'); if(!layer){layer=document.createElement('div');layer.id='level4TextLayer';layer.style.cssText='position:fixed;inset:0;z-index:60;pointer-events:none;font-family:Prompt,Tahoma,Arial,sans-serif;';layer.innerHTML=`<div id="level4QuestionText" style="position:absolute;text-align:center;color:#000;font-weight:800;line-height:1.25"></div><div id="level4LeftText" style="position:absolute;text-align:center;color:#000;font-weight:800;line-height:1.25;display:flex;align-items:center;justify-content:center;padding:14px;box-sizing:border-box"></div><div id="level4RightText" style="position:absolute;text-align:center;color:#000;font-weight:800;line-height:1.25;display:flex;align-items:center;justify-content:center;padding:14px;box-sizing:border-box"></div>`;document.body.appendChild(layer);} return layer;
+        }
+        function updateLevel4DomText(ctx,qData,leftRect,rightRect){
+            const layer=ensureLevel4DomText();layer.style.display=(state.currentLevel===4&&state.isPlaying)?'block':'none';const q=document.getElementById('level4QuestionText'),l=document.getElementById('level4LeftText'),r=document.getElementById('level4RightText');
+            const mobile=isMobileLandscape();
+            const qw=mobile?Math.min(ctx.canvas.width-48,680):720, qy=mobile?Math.max(92,ctx.canvas.height*0.255):160, qh=mobile?Math.max(82,Math.min(104,ctx.canvas.height*0.24)):110;
+            const qr=canvasToViewportRect(ctx,ctx.canvas.width/2-qw/2,qy,qw,qh),lr=canvasToViewportRect(ctx,leftRect.x,leftRect.y,leftRect.width,leftRect.height),rr=canvasToViewportRect(ctx,rightRect.x,rightRect.y,rightRect.width,rightRect.height);
+            if(q){
+                q.innerHTML=`<div style="font-size:${mobile?13:18}px;margin-bottom:${mobile?2:5}px;line-height:1.15">คำถามการสมดุลระบบนิเวศ ข้อที่ ${state.currentQuestionIndex+1} / ${state.totalQuestions}:</div><div style="font-size:${mobile?(qData.q.length>75?12:(qData.q.length>50?13:15)):22}px;line-height:1.12">${qData.q}</div>`;
+                Object.assign(q.style,{
+                    left:qr.left+'px', top:qr.top+'px', width:qr.width+'px', height:qr.height+'px',
+                    padding:(mobile?'5px 12px':'10px 24px'), boxSizing:'border-box', overflow:'hidden',
+                    display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+                    whiteSpace:'normal', overflowWrap:'anywhere'
+                });
+            }
+            if(l){l.textContent=`⬅️ ${qData.opts[0]}`;Object.assign(l.style,{boxSizing:'border-box',overflow:'hidden',whiteSpace:'normal',overflowWrap:'anywhere',left:lr.left+'px',top:lr.top+'px',width:lr.width+'px',height:lr.height+'px',fontSize:(mobile?(String(qData.opts[0]).length>28?'13px':'16px'):'24px')});}
+            if(r){r.textContent=`➡️ ${qData.opts[1]}`;Object.assign(r.style,{boxSizing:'border-box',overflow:'hidden',whiteSpace:'normal',overflowWrap:'anywhere',left:rr.left+'px',top:rr.top+'px',width:rr.width+'px',height:rr.height+'px',fontSize:(mobile?(String(qData.opts[1]).length>28?'13px':'16px'):'24px')});}
+        }
+
+
+        // Adventure HUD for Levels 1–4: makes every stage feel like a mission,
+        // while showing participation progress only (never revealing correct/incorrect answers).
+        function renderAdventureMissionHud(ctx, levelNum) {
+            if (levelNum < 1 || levelNum > 5) return;
+            const w = ctx.canvas.width;
+            const themes = {
+                1: { icon: '🗺️', name: 'ภารกิจนักสำรวจระบบนิเวศ', color: '#14B8A6', track: '#134E4A' },
+                2: { icon: '⚡', name: 'ภารกิจส่งต่อพลังงาน', color: '#8B5CF6', track: '#4C1D95' },
+                3: { icon: '🫧', name: 'ภารกิจจับคู่สายสัมพันธ์', color: '#EC4899', track: '#831843' },
+                4: { icon: '⚖️', name: 'ภารกิจกู้สมดุลระบบนิเวศ', color: '#F59E0B', track: '#78350F' },
+                5: { icon: '🌍', name: 'ภารกิจพิทักษ์ระบบนิเวศ', color: '#34D399', track: '#334155' }
+            };
+            const t = themes[levelNum];
+            const done = Math.min(state.currentQuestionIndex, state.totalQuestions);
+            const pct = Math.round((done / Math.max(1, state.totalQuestions)) * 100);
+            const mobile = isMobileLandscape();
+            const boxW = mobile ? Math.min(w - 180, 520) : Math.min(780, w - 80);
+            const x = (w - boxW) / 2;
+            // Mobile: compact mission strip sits below the top HUD and above the question card.
+            const y = mobile ? 48 : 82, boxH = mobile ? 36 : 72;
+
+            ctx.save();
+            ctx.shadowColor = 'rgba(0,0,0,.30)';
+            ctx.shadowBlur = 10;
+            ctx.fillStyle = 'rgba(15,23,42,.91)';
+            ctx.beginPath(); ctx.roundRect(x, y, boxW, boxH, mobile ? 12 : 22); ctx.fill();
+            ctx.shadowColor = 'transparent';
+
+            ctx.fillStyle = '#FFFFFF';
+            setCanvasFont(ctx, '800', mobile ? 10 : 18);
+            ctx.textAlign = 'center';
+            ctx.fillText(`${t.icon} ${t.name}`, w/2, y + (mobile ? 12 : 24));
+
+            const trackX = x + (mobile ? 48 : 90), trackY = y + (mobile ? 19 : 36), trackW = boxW - (mobile ? 96 : 180), trackH = mobile ? 10 : 22;
+            ctx.fillStyle = t.track;
+            ctx.beginPath(); ctx.roundRect(trackX, trackY, trackW, trackH, mobile ? 5 : 11); ctx.fill();
+            const fillW = trackW * pct / 100;
+            if (fillW > 0) {
+                ctx.fillStyle = t.color;
+                ctx.beginPath(); ctx.roundRect(trackX, trackY, fillW, trackH, mobile ? 5 : 11); ctx.fill();
+            }
+            ctx.fillStyle = '#FFFFFF';
+            setCanvasFont(ctx, '800', mobile ? 8 : 14);
+            ctx.textAlign = 'right';
+            ctx.fillText(`${done}/${state.totalQuestions} • ${pct}%`, x + boxW - (mobile ? 8 : 18), y + (mobile ? 30 : 54));
+            ctx.restore();
+        }
+
+        function renderLevel1Overlay(ctx) {
+            const w = ctx.canvas.width;
+            renderAdventureMissionHud(ctx, 1);
+            const h = ctx.canvas.height;
+            const item = state.fallingItems[0];
+            if (!item) return;
+
+            // High-Contrast Question Card Container
+            ctx.save();
+            const boxW = Math.min(620, w - 60);
+            const boxX = (w - boxW) / 2;
+            const mobile = isMobileLandscape();
+            const boxY = mobile ? Math.max(92, h * 0.255) : 160;
+            const boxH = mobile ? Math.max(64, h * 0.18) : 100;
+
+            // Card Shadow & Solid Background
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+            ctx.shadowBlur = 16;
+            ctx.shadowOffsetY = 6;
+            ctx.fillStyle = '#FFFFFF';
+            ctx.roundRect(boxX, boxY, boxW, boxH, 24);
+            ctx.fill();
+
+            // Thick Dark Outer Border
+            ctx.shadowColor = 'transparent';
+            ctx.lineWidth = 5;
+            ctx.strokeStyle = '#0F172A';
+            ctx.stroke();
+
+            // Level 1 question text is rendered once by the DOM overlay below.
+            // Do not draw the same Thai text on canvas, otherwise it overlaps.
+            ctx.restore();
+
+            // Responsive box widths
+            const boxWidth = mobile ? Math.min(230, Math.max(150, w * 0.27)) : Math.min(270, Math.max(190, w * 0.31));
+            const boxHeight = mobile ? Math.max(78, h * 0.23) : 130;
+            const bottomMargin = mobile ? Math.max(112, h * 0.31) : Math.min(230, h * 0.3);
+
+            // Left Option Box: ระบบนิเวศบนบก
+            const boxLeft = { x: 25, y: h - bottomMargin, width: boxWidth, height: boxHeight };
+            const isHoverLeft = isPointInRect(state.leftHandPos, boxLeft); // ด่าน 1: มือซ้ายตอบได้เฉพาะกรอบซ้าย
+
+            ctx.save();
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+            ctx.shadowBlur = 14;
+            ctx.shadowOffsetY = 6;
+
+            let leftBg = '#A7F3D0'; // Bright solid mint green base
+            let leftBorder = '#047857';
+            let leftTitleColor = '#000000'; // Pure black text
+            let leftSubColor = '#064E3B';
+
+            if (state.isWaitingNext) {
+                if (item.type === 'solvent') {
+                    leftBg = '#047857'; leftTitleColor = '#FFFFFF'; leftSubColor = '#ECFDF5';
+                } else {
+                    leftBg = '#E2E8F0'; leftBorder = '#64748B'; leftTitleColor = '#94A3B8'; leftSubColor = '#CBD5E1';
+                }
+            } else if (isHoverLeft) {
+                leftBg = '#059669'; leftBorder = '#022C22'; leftTitleColor = '#FFFFFF'; leftSubColor = '#ECFDF5';
+            }
+
+            ctx.fillStyle = leftBg;
+            ctx.roundRect(boxLeft.x, boxLeft.y, boxLeft.width, boxLeft.height, 24);
+            ctx.fill();
+
+            ctx.shadowColor = 'transparent';
+            ctx.lineWidth = isHoverLeft ? 6 : 4;
+            ctx.strokeStyle = leftBorder;
+            ctx.stroke();
+
+            // Level 1 left label is rendered once by the DOM overlay.
+            ctx.restore();
+
+            // Right Option Box: ระบบนิเวศในน้ำ
+            const boxRight = { x: w - boxWidth - 25, y: h - bottomMargin, width: boxWidth, height: boxHeight };
+            const isHoverRight = isPointInRect(state.rightHandPos, boxRight); // ด่าน 1: มือขวาตอบได้เฉพาะกรอบขวา
+
+            // Guaranteed visible Thai labels/questions for Level 1.
+            updateLevel1DomText(ctx, item, boxX, boxY, boxW, boxH, boxLeft, boxRight);
+
+            ctx.save();
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+            ctx.shadowBlur = 14;
+            ctx.shadowOffsetY = 6;
+
+            let rightBg = '#FBCFE8'; // Bright solid pink base
+            let rightBorder = '#BE185D';
+            let rightTitleColor = '#000000'; // Pure black text
+            let rightSubColor = '#701A75';
+
+            if (state.isWaitingNext) {
+                if (item.type === 'solute') {
+                    rightBg = '#BE185D'; rightTitleColor = '#FFFFFF'; rightSubColor = '#FDF2F8';
+                } else {
+                    rightBg = '#E2E8F0'; rightBorder = '#64748B'; rightTitleColor = '#94A3B8'; rightSubColor = '#CBD5E1';
+                }
+            } else if (isHoverRight) {
+                rightBg = '#DB2777'; rightBorder = '#701A75'; rightTitleColor = '#FFFFFF'; rightSubColor = '#FDF2F8';
+            }
+
+            ctx.fillStyle = rightBg;
+            ctx.roundRect(boxRight.x, boxRight.y, boxRight.width, boxRight.height, 24);
+            ctx.fill();
+
+            ctx.shadowColor = 'transparent';
+            ctx.lineWidth = isHoverRight ? 6 : 4;
+            ctx.strokeStyle = rightBorder;
+            ctx.stroke();
+
+            // Right label is rendered only by the DOM overlay to prevent duplicate text.
+            ctx.restore();
+
+            if (state.isWaitingNext) return;
+
+            let hoveredSelection = null;
+            let handPos = null;
+
+            if (isHoverLeft) {
+                hoveredSelection = 'solvent';
+                handPos = state.leftHandPos;
+            } else if (isHoverRight) {
+                hoveredSelection = 'solute';
+                handPos = state.rightHandPos;
+            }
+
+            if (hoveredSelection && handPos) {
+                item.dwellCount = (item.dwellCount || 0) + 1;
+                const progress = Math.min(item.dwellCount / item.targetDwell, 1);
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(handPos.x, handPos.y, 40, -Math.PI / 2, (-Math.PI / 2) + (Math.PI * 2 * progress));
+                ctx.lineWidth = 8;
+                ctx.strokeStyle = hoveredSelection === 'solvent' ? '#047857' : '#9D174D';
+                ctx.stroke(); 
+                ctx.restore();
+
+                if (item.dwellCount >= item.targetDwell) {
+                    playAnswerSound();
+                    const isCorrect = (hoveredSelection === item.type);
+                    item.lastCorrect = isCorrect;
+                    if (isCorrect) {
+                        state.scores.level1++;
+                    } else {
+                        // ไม่แสดงผลถูก/ผิดหรือเฉลยระหว่างเล่น
+                    }
+                    document.getElementById('hudScore').innerText = `ตอบถูก ${state.scores.level1} / ${state.totalQuestions}`;
+                    advanceQuestionWithDelay(spawnLevel1Item, 1800);
+                }
+            } else { item.dwellCount = 0; }
+        }
+
+        function loadLevel2Question() {
+            if (state.currentQuestionIndex >= levelData[2].questions.length) { endLevel(); return; }
+            const qData = levelData[2].questions[state.currentQuestionIndex];
+            const gameCanvas = document.getElementById('canvasGame');
+            const w = gameCanvas?.width || window.innerWidth || 1280;
+            const h = gameCanvas?.height || window.innerHeight || 720;
+            const mobile = isMobileLandscape();
+
+            state.interactiveBubbles = qData.opts.map((opt, i) => ({
+                text: opt,
+                isCorrect: opt === qData.ans,
+                x: (w / 4) * (i + 1),
+                // ยกฟองคำตอบด่าน 2 ขึ้น เพื่อเว้นระยะจากขอบล่างของหน้าจอ
+                y: mobile ? h * 0.70 : 440,
+                radius: mobile ? Math.max(54, Math.min(68, h * 0.16)) : 88,
+                dwellCount: 0,
+                targetDwell: 20,
+                selected: false
+            }));
+            updatePromptText("⏱️ ยื่นมือค้างไว้ที่ฟองคำตอบที่ถูกต้อง 1 วินาที!");
+        }
+
+        function renderLevel2Overlay(ctx) {
+            const w = ctx.canvas.width;
+            const h = ctx.canvas.height;
+            const mobile = isMobileLandscape();
+            renderAdventureMissionHud(ctx, 2);
+            const qData = levelData[2].questions[state.currentQuestionIndex];
+            if (!qData) return;
+
+            // Colorful mission question card
+            ctx.save();
+            const l2Palettes = [
+                ['#EDE9FE','#DBEAFE'], ['#FCE7F3','#EDE9FE'],
+                ['#DCFCE7','#CCFBF1'], ['#FEF3C7','#FFEDD5']
+            ];
+            const lp = l2Palettes[state.currentQuestionIndex % l2Palettes.length];
+            const lg = ctx.createLinearGradient(w/2-380, 155, w/2+380, 270);
+            lg.addColorStop(0, lp[0]); lg.addColorStop(1, lp[1]);
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.38)';
+            ctx.shadowBlur = 14; ctx.shadowOffsetY = 5;
+            ctx.fillStyle = lg;
+            const qW = mobile ? Math.min(w - 48, 680) : 760;
+            const qY = mobile ? Math.max(92, h * 0.255) : 160;
+            const qH = mobile ? Math.max(82, Math.min(104, h * 0.24)) : 120;
+            ctx.beginPath(); ctx.roundRect(w / 2 - qW/2, qY, qW, qH, mobile ? 18 : 26); ctx.fill();
+            ctx.shadowColor = 'transparent';
+            ctx.lineWidth = 5; ctx.strokeStyle = '#8B5CF6'; ctx.stroke();
+
+            ctx.fillStyle = '#4C1D95';
+            setCanvasFont(ctx, '800', 19); ctx.textAlign = 'center';
+            setCanvasFont(ctx, '800', mobile ? 10 : 19);
+            ctx.fillText(`⚡ จุดพลังงานที่ ${state.currentQuestionIndex + 1} / ${state.totalQuestions}`, w / 2, qY + (mobile ? 22 : 33));
+            ctx.fillStyle = '#0F172A';
+            drawAutoFitText(ctx, qData.q, w / 2 - qW/2 + (mobile ? 17 : 23), qY + qH * (mobile ? 0.64 : 0.67), qW - (mobile ? 34 : 45), qH * (mobile ? 0.56 : 0.52), {
+                maxSize: mobile ? 18 : 23, minSize: mobile ? 12 : 16, maxLines: mobile ? 3 : 4, weight: '800', align: 'left'
+            });
+            ctx.restore();
+
+            // Render Answer Bubbles
+            state.interactiveBubbles.forEach(b => {
+                ctx.save();
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+                ctx.shadowBlur = 12;
+                ctx.shadowOffsetY = 4;
+
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+                
+                let bgColor = '#DDD6FE'; // Bright pastel purple
+                let borderColor = '#5B21B6';
+                let textColor = '#000000';
+
+                // ระหว่างรอไปข้อถัดไป ห้ามเฉลยคำตอบที่ถูกด้วยสี
+                // แสดงเพียงตัวเลือกที่ผู้เรียนกดเป็นสีน้ำเงินแบบกลาง ๆ ไม่ว่าถูกหรือผิด
+                if (state.isWaitingNext && b.selected) {
+                    bgColor = '#BAE6FD'; borderColor = '#0369A1'; textColor = '#0C4A6E';
+                }
+
+                ctx.fillStyle = bgColor;
+                ctx.fill();
+
+                ctx.shadowColor = 'transparent';
+                ctx.lineWidth = 5;
+                ctx.strokeStyle = borderColor;
+                ctx.stroke();
+
+                ctx.fillStyle = textColor;
+                drawAutoFitText(ctx, b.text, b.x - b.radius * 0.76, b.y, b.radius * 1.52, b.radius * 1.28, {
+                    maxSize: mobile ? 18 : 27, minSize: mobile ? 12 : 16, maxLines: 3, weight: '800', color: textColor, align: 'left'
+                });
+                ctx.restore();
+
+                if (state.isWaitingNext) return;
+
+                let hand = null;
+                if (state.leftHandPos.detected && checkDistance(state.leftHandPos, b, b.radius + 15)) hand = state.leftHandPos;
+                else if (state.rightHandPos.detected && checkDistance(state.rightHandPos, b, b.radius + 15)) hand = state.rightHandPos;
+
+                if (hand) {
+                    b.dwellCount = (b.dwellCount || 0) + 1;
+                    const progress = Math.min(b.dwellCount / b.targetDwell, 1);
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.arc(b.x, b.y, b.radius + 8, -Math.PI / 2, (-Math.PI / 2) + (Math.PI * 2 * progress));
+                    ctx.lineWidth = 8;
+                    ctx.strokeStyle = '#5B21B6';
+                    ctx.stroke();
+                    ctx.restore();
+
+                    if (b.dwellCount >= b.targetDwell) {
+                        playAnswerSound();
+                        // จำเฉพาะวงกลมที่ผู้เรียนเลือก เพื่อยืนยันการรับคำตอบโดยไม่เฉลย
+                        state.interactiveBubbles.forEach(opt => { opt.selected = (opt === b); });
+                        if (b.isCorrect) {
+                            state.scores.level2++;
+                            // ไม่แสดงผลถูก/ผิดระหว่างเล่น
+                        } else {
+                            // ไม่แสดงเฉลยระหว่างเล่น
+                        }
+                        document.getElementById('hudScore').innerText = `ตอบถูก ${state.scores.level2} / ${state.totalQuestions}`;
+                        advanceQuestionWithDelay(loadLevel2Question, 1600);
+                    }
+                } else {
+                    b.dwellCount = 0;
+                }
+            });
+        }
+
+        function createNewLevel3Bubble(itemIndex, x = null, y = null) {
+            const items = levelData[3].items;
+            const item = items[itemIndex % items.length];
+            const w = window.innerWidth || 1280;
+            const h = window.innerHeight || 720;
+
+            // ฟองกลมหลายขนาด กระจายทั่วหน้าจอ และลอยขึ้นด้านบน
+            const radius = isMobileLandscape() ? Math.max(48, Math.min(66, h * 0.16)) : Math.max(78, Math.min(100, w * 0.060));
+            const safeLeft = radius + 35;
+            const safeRight = w - radius - 35;
+
+            return {
+                text: item.text,
+                isCorrect: item.correct,
+                itemIndex: itemIndex,
+                x: x === null ? safeLeft + Math.random() * Math.max(1, safeRight - safeLeft) : x,
+                y: y === null ? h + radius + Math.random() * 260 : y,
+                vy: -(0.75 + Math.random() * 0.75),
+                vx: (Math.random() - 0.5) * 0.22,
+                radius: radius,
+                dwellCount: 0,
+                targetDwell: 20,
+                answered: false
+            };
+        }
+
+        function spawnLevel3Bubbles() {
+            state.interactiveBubbles = [];
+            level3ItemIndex = 0;
+
+            const w = window.innerWidth || 1280;
+            const h = window.innerHeight || 720;
+            // ใช้ 4 เลนคงที่ แต่สลับระดับเริ่มต้นและความเร็วของแต่ละฟอง
+            // ทำให้ฟองลอยสูง-ต่ำไม่เท่ากัน อ่านง่ายและดูเป็นธรรมชาติมากขึ้น
+            const laneCount = 4;
+            const initialCount = Math.min(laneCount, levelData[3].items.length);
+            for (let i = 0; i < initialCount; i++) {
+                const laneX = (w * (i + 1)) / (laneCount + 1);
+                const staggerY = [40, 185, 95, 250][i % 4];
+                const bubble = createNewLevel3Bubble(level3ItemIndex++, laneX, h + staggerY);
+                bubble.lane = i;
+                bubble.vx = 0;
+                bubble.vy = -(0.72 + Math.random() * 0.55);
+                state.interactiveBubbles.push(bubble);
+            }
+
+            document.getElementById('hudScore').innerText = `ตอบแล้ว 0 / ${state.totalQuestions} • ถูก 0 / ${state.totalQuestions}`;
+            updatePromptText("🫧 ใช้มือขวาจับฟองอากาศฟองที่เลือก • ฟองที่ปล่อยผ่านจะวนกลับมา • จับฟองอากาศให้ครบ 20 ข้อ");
+        }
+
+        function addNextLevel3Bubble() {
+            const w = window.innerWidth || 1280;
+            const h = window.innerHeight || 720;
+            const laneCount = 4;
+            const gap = 55;
+
+            // เลือกเลนที่มีฟองน้อยที่สุดก่อน และถ้าเท่ากันเลือกเลนที่ฟองลอยสูงที่สุด
+            let bestLane = 0;
+            let bestCount = Infinity;
+            let bestLowestY = Infinity;
+            for (let lane = 0; lane < laneCount; lane++) {
+                const inLane = state.interactiveBubbles.filter(b => b.lane === lane && !b.answered);
+                const count = inLane.length;
+                const lowestY = count ? Math.max(...inLane.map(b => b.y + b.radius)) : -Infinity;
+                if (count < bestCount || (count === bestCount && lowestY < bestLowestY)) {
+                    bestCount = count;
+                    bestLowestY = lowestY;
+                    bestLane = lane;
+                }
+            }
+
+            const laneX = (w * (bestLane + 1)) / (laneCount + 1);
+            const bubble = createNewLevel3Bubble(level3ItemIndex++, laneX, h + 120);
+            bubble.lane = bestLane;
+            bubble.vx = 0;
+            bubble.vy = -(0.72 + Math.random() * 0.55);
+            bubble.y += Math.random() * 150;
+
+            // ถ้าเลนนั้นยังมีฟองอยู่ ให้วางฟองใหม่ต่อท้ายโดยเว้นช่องว่างชัดเจน
+            const sameLane = state.interactiveBubbles.filter(b => b.lane === bestLane && !b.answered);
+            if (sameLane.length) {
+                const lowest = sameLane.reduce((a, b) => (a.y + a.radius > b.y + b.radius ? a : b));
+                bubble.y = Math.max(bubble.y, lowest.y + lowest.radius + bubble.radius + gap);
+            }
+            state.interactiveBubbles.push(bubble);
+        }
+
+        function loadLevel4Question() {
+            if (state.currentQuestionIndex >= levelData[4].questions.length) { endLevel(); return; }
+            const qData = levelData[4].questions[state.currentQuestionIndex];
+            const gameCanvas = document.getElementById('canvasGame');
+            const w = gameCanvas?.width || window.innerWidth || 1280;
+            const h = gameCanvas?.height || window.innerHeight || 720;
+            const mobile = isMobileLandscape();
+            const cardWidth = mobile ? Math.min(260, Math.max(180, w * 0.27)) : Math.min(360, Math.max(230, w * 0.30));
+            const cardHeight = mobile ? Math.max(72, h * 0.20) : 125;
+            state.level4Options = [
+                { id: 'left', text: qData.opts[0], x: w * 0.25 - cardWidth / 2, y: -cardHeight - 20, width: cardWidth, height: cardHeight, vy: 3.4 },
+                { id: 'right', text: qData.opts[1], x: w * 0.75 - cardWidth / 2, y: -cardHeight - 20, width: cardWidth, height: cardHeight, vy: 3.4 }
+            ];
+            updatePromptText("🚶 เดินซ้าย–ขวา ใช้ลำตัวจับกล่องคำตอบที่ถูกต้องซึ่งลอยลงมาจากด้านบน!");
+        }
+
+        function loadLevel5Question() {
+            if (state.currentQuestionIndex >= state.totalQuestions) { endLevel(); return; }
+            const qData = levelData[5].questions[state.currentQuestionIndex];
+            const gameCanvas = document.getElementById('canvasGame');
+            const w = gameCanvas?.width || window.innerWidth || 1280;
+            const h = gameCanvas?.height || window.innerHeight || 720;
+            const mobile = isMobileLandscape();
+            const xs = [w * 0.18, w * 0.50, w * 0.82];
+            const icons = ['🌱','🦋','🌍','💧','🐾','🍃','🌿','🐝','♻️','🌳'];
+            state.interactiveBubbles = qData.opts.map((opt, i) => ({
+                text: opt,
+                icon: icons[(state.currentQuestionIndex * 3 + i) % icons.length],
+                isCorrect: opt === qData.ans,
+                x: xs[i], y: mobile ? h * 0.70 : 455,
+                radius: mobile ? Math.max(58, h * 0.16) : 115,
+                cardWidth: mobile ? Math.min(250, w * 0.27) : Math.min(285, w * 0.28), cardHeight: mobile ? Math.max(92, h * 0.24) : 145,
+                bobOffset: Math.random() * Math.PI * 2
+            }));
+            updatePromptText('🖐️ มือซ้ายแตะค้างเฉพาะซ้าย • ✋ มือขวาแตะค้างเฉพาะขวา • 🙌 สองมือแตะกลางพร้อมกันเท่านั้น');
+        }
+
+        function renderLevel3Overlay(ctx) {
+            const w = ctx.canvas.width;
+            const h = ctx.canvas.height;
+
+            renderAdventureMissionHud(ctx, 3);
+            // Compact instruction strip leaves more room for moving bubbles.
+            ctx.save();
+            const stripW = Math.min(700, w - 100);
+            const stripX = (w - stripW) / 2;
+            ctx.fillStyle = 'rgba(253,242,248,.96)';
+            const mobile = isMobileLandscape();
+            const stripY = mobile ? Math.max(92, h * 0.255) : 160;
+            const stripH = mobile ? 42 : 48;
+            ctx.beginPath(); ctx.roundRect(stripX, stripY, stripW, stripH, 18); ctx.fill();
+            ctx.lineWidth = 4; ctx.strokeStyle = '#DB2777'; ctx.stroke();
+            ctx.fillStyle = '#831843'; setCanvasFont(ctx, '800', mobile ? 13 : 18); ctx.textAlign = 'left';
+            if (mobile) wrapText(ctx, '🫧 มือขวาจับฟองอากาศฟองที่คิดว่าถูกให้ครบ 20 ครั้ง • ปล่อยผ่านไม่นับ', stripX + 12, stripY + 15, stripW - 24, 15, 2);
+            else ctx.fillText('🫧 มือขวาจับฟองอากาศฟองที่คิดว่าถูกให้ครบ 20 ครั้ง • ปล่อยผ่านไม่นับ', stripX + 12, stripY + stripH * 0.63);
+            ctx.restore();
+
+            let hoveredBubbleIndex = -1;
+            let hoveredHand = null;
+            let closestDistance = Infinity;
+
+            if (!state.isWaitingNext) {
+                state.interactiveBubbles.forEach((bubble, index) => {
+                    [state.rightHandPos].forEach(handPos => {
+                        if (!handPos.detected || bubble.answered) return;
+                        const d = Math.hypot(handPos.x - bubble.x, handPos.y - bubble.y);
+                        if (d <= bubble.radius + 18 && d < closestDistance) {
+                            closestDistance = d;
+                            hoveredBubbleIndex = index;
+                            hoveredHand = handPos;
+                        }
+                    });
+                });
+            }
+
+            for (let i = state.interactiveBubbles.length - 1; i >= 0; i--) {
+                const b = state.interactiveBubbles[i];
+
+                if (!state.isWaitingNext) {
+                    b.y += b.vy;
+                    // ฟองลอยตรงขึ้นตามช่องของตัวเอง เพื่อไม่ให้ตัดกัน
+                    b.vx = 0;
+                }
+
+                // วาดเป็นฟองอากาศทรงกลมเหมือนภาพตัวอย่าง
+                ctx.save();
+                ctx.shadowColor = 'rgba(0,0,0,0.32)';
+                ctx.shadowBlur = 12;
+                ctx.shadowOffsetY = 5;
+                ctx.fillStyle = b.isCorrect ? 'rgba(233,213,255,0.96)' : 'rgba(233,213,255,0.96)';
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowColor = 'transparent';
+                ctx.lineWidth = 6;
+                ctx.strokeStyle = '#6B21A8';
+                ctx.stroke();
+
+                // ไฮไลต์เงาวาวแบบฟอง
+                ctx.globalAlpha = 0.38;
+                ctx.fillStyle = '#FFFFFF';
+                ctx.beginPath();
+                ctx.arc(b.x - b.radius * 0.34, b.y - b.radius * 0.38, b.radius * 0.15, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+
+                ctx.fillStyle = '#111827';
+                drawAutoFitText(ctx, b.text, b.x - b.radius * 0.79, b.y + (mobile ? 4 : 6), b.radius * 1.58, b.radius * 1.36, {
+                    maxSize: mobile ? 19 : 25, minSize: mobile ? 12 : 17, maxLines: mobile ? 4 : 5, weight: '800', color: '#111827', align: 'left'
+                });
+                ctx.restore();
+
+                if (state.isWaitingNext || b.answered) continue;
+
+                const hand = i === hoveredBubbleIndex ? hoveredHand : null;
+                if (hand) {
+                    b.dwellCount = (b.dwellCount || 0) + 1;
+                    const progress = Math.min(b.dwellCount / b.targetDwell, 1);
+
+                    ctx.save();
+                    ctx.lineWidth = 8;
+                    ctx.strokeStyle = '#FDE047';
+                    ctx.globalAlpha = 0.3 + 0.7 * progress;
+                    ctx.beginPath();
+                    ctx.arc(b.x, b.y, b.radius + 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+                    ctx.stroke();
+                    ctx.restore();
+
+                    if (b.dwellCount >= b.targetDwell) {
+                        b.answered = true;
+                        playAnswerSound();
+                        if (b.isCorrect) {
+                            state.scores.level3++;
+                            // ไม่แสดงผลถูก/ผิดระหว่างเล่น
+                        } else {
+                            // ไม่แสดงผลถูก/ผิดระหว่างเล่น
+                        }
+                        // นับเป็นข้อที่ตอบเฉพาะเมื่อเด็กจับฟองอากาศฟองจริงเท่านั้น
+                        state.interactiveBubbles.splice(i, 1);
+                        state.currentQuestionIndex++;
+                        document.getElementById('hudScore').innerText = `ตอบแล้ว ${state.currentQuestionIndex} / ${state.totalQuestions} • ถูก ${state.scores.level3} / ${state.totalQuestions}`;
+
+                        if (state.currentQuestionIndex >= state.totalQuestions) {
+                            endLevel();
+                            return;
+                        }
+
+                        // นำข้อใหม่ที่ยังไม่เคยแสดงเข้ามาแทนฟองที่ตอบแล้ว
+                        addNextLevel3Bubble();
+                        continue;
+                    }
+                } else {
+                    b.dwellCount = 0;
+                }
+
+                // ปล่อยผ่าน = ยังไม่ตอบและไม่นับข้อ นำฟองถัดไปเข้ามาแทน
+                // รายการคำถามใช้ modulo จึงวนต่อเนื่องจนเด็กจับฟองอากาศครบ 20 ครั้ง
+                if (b.y + b.radius < 0) {
+                    state.interactiveBubbles.splice(i, 1);
+                    addNextLevel3Bubble();
+                }
+            }
+        }
+
+        function renderLevel4Overlay(ctx) {
+            const w = ctx.canvas.width; const h = ctx.canvas.height;
+            renderAdventureMissionHud(ctx, 4);
+            const qData = levelData[4].questions[state.currentQuestionIndex];
+            if (!qData) return;
+
+            // Render Header Box for Question
+            ctx.save();
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+            ctx.shadowBlur = 14;
+            ctx.shadowOffsetY = 5;
+            // Colorful Level 4 question card: visually distinct from the white falling answer cards.
+            const level4QuestionPalettes = [
+                ['#A7F3D0','#BFDBFE','#E9D5FF'], ['#FDE68A','#FDBA74','#FBCFE8'],
+                ['#BAE6FD','#C4B5FD','#F5D0FE'], ['#BBF7D0','#FEF08A','#FED7AA'],
+                ['#FBCFE8','#DDD6FE','#BFDBFE'], ['#99F6E4','#A5F3FC','#BAE6FD'],
+                ['#FDE68A','#FBCFE8','#DDD6FE'], ['#C7D2FE','#BAE6FD','#A7F3D0']
+            ];
+            const palette = level4QuestionPalettes[state.currentQuestionIndex % level4QuestionPalettes.length];
+            const questionGradient = ctx.createLinearGradient(w / 2 - 360, 150, w / 2 + 360, 260);
+            questionGradient.addColorStop(0, palette[0]);
+            questionGradient.addColorStop(0.5, palette[1]);
+            questionGradient.addColorStop(1, palette[2]);
+            ctx.fillStyle = questionGradient;
+            const mobile = isMobileLandscape();
+            const l4QW = mobile ? Math.min(w - 48, 680) : 720;
+            const l4QY = mobile ? Math.max(92, h * 0.255) : 160;
+            const l4QH = mobile ? Math.max(82, Math.min(104, h * 0.24)) : 110;
+            ctx.roundRect(w / 2 - l4QW/2, l4QY, l4QW, l4QH, mobile ? 17 : 22); ctx.fill();
+            ctx.shadowColor = 'transparent';
+            ctx.lineWidth = 5; ctx.strokeStyle = '#7C3AED'; ctx.stroke();
+            // Level 4 question text is rendered once by the DOM overlay.
+            ctx.restore();
+
+            // Rebuild safely if the canvas size changed or this question was
+            // entered without an initialized pair of falling options.
+            if (!state.level4Options || state.level4Options.length !== 2) {
+                const cardWidth = Math.min(360, Math.max(230, w * 0.30));
+                const cardHeight = 125;
+                state.level4Options = [
+                    { id: 'left', text: qData.opts[0], x: w * 0.25 - cardWidth / 2, y: -cardHeight - 20, width: cardWidth, height: cardHeight, vy: 3.4 },
+                    { id: 'right', text: qData.opts[1], x: w * 0.75 - cardWidth / 2, y: -cardHeight - 20, width: cardWidth, height: cardHeight, vy: 3.4 }
+                ];
+            }
+
+            if (!state.isWaitingNext) {
+                state.level4Options.forEach(option => { option.y += option.vy; });
+            }
+
+            const leftOption = state.level4Options[0];
+            const rightOption = state.level4Options[1];
+            updateLevel4DomText(ctx, qData, leftOption, rightOption);
+
+            // Level 4: choose by BODY HORIZONTAL ZONE, not shoulder/card Y collision.
+            // This makes BOTH left and right sides equally reliable even when the falling card
+            // is lower than the shoulder landmark. The card must first enter the play area.
+            let caughtOption = null;
+            if (!state.isWaitingNext) {
+                const playTop = isMobileLandscape() ? Math.max(175, h * 0.43) : Math.max(350, h * 0.42);
+                const playBottom = h - (isMobileLandscape() ? 42 : 80);
+                const leftReady = leftOption.y + leftOption.height >= playTop && leftOption.y <= playBottom;
+                const rightReady = rightOption.y + rightOption.height >= playTop && rightOption.y <= playBottom;
+
+                if (state.bodyCenterPos.detected) {
+                    // Camera coordinates are already mirrored in onPoseResults(), so screen-left
+                    // really means the learner walks to the left side of the displayed screen.
+                    if (state.bodyCenterPos.x < w * 0.43 && leftReady) {
+                        caughtOption = leftOption;
+                    } else if (state.bodyCenterPos.x > w * 0.57 && rightReady) {
+                        caughtOption = rightOption;
+                    }
+                }
+
+                // Level 4 intentionally accepts BODY position only.
+                // Hands are ignored so learners cannot reach into a card to answer.
+            }
+
+            state.level4Options.forEach(option => {
+                // Visual feedback follows the body-only selection above. Hands do not trigger Level 4.
+                ctx.save();
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+                ctx.shadowBlur = 12;
+                ctx.shadowOffsetY = 4;
+                // Level 4 neutral selection feedback: BOTH sides use the same blue blink.
+                // Blue means only 'answer received' — it never reveals correct/incorrect.
+                const isTouched = (!state.isWaitingNext && caughtOption === option);
+                const isSelected = option.selected === true;
+                const blinkOn = isSelected ? (Math.floor(performance.now() / 170) % 2 === 0) : false;
+                const highlight = isTouched || (isSelected && blinkOn);
+                ctx.fillStyle = highlight ? '#BAE6FD' : '#FFFFFF';
+                ctx.roundRect(option.x, option.y, option.width, option.height, 24); ctx.fill();
+                ctx.shadowColor = 'transparent';
+                ctx.strokeStyle = highlight ? '#0369A1' : '#0F172A';
+                ctx.lineWidth = highlight ? 6 : 4;
+                ctx.stroke();
+                ctx.restore();
+            });
+
+            // Neutral confirmation only: do not reveal whether the answer is correct.
+            if (state.isWaitingNext && state.level4Options.some(option => option.selected === true)) {
+                ctx.save();
+                const msgW = Math.min(330, w * 0.42);
+                const msgH = 58;
+                const msgX = (w - msgW) / 2;
+                const msgY = Math.min(h - 150, 365);
+                ctx.shadowColor = 'rgba(0,0,0,0.30)';
+                ctx.shadowBlur = 10;
+                ctx.fillStyle = '#E0F2FE';
+                ctx.roundRect(msgX, msgY, msgW, msgH, 18); ctx.fill();
+                ctx.shadowColor = 'transparent';
+                ctx.lineWidth = 4; ctx.strokeStyle = '#0369A1'; ctx.stroke();
+                ctx.fillStyle = '#0C4A6E'; setCanvasFont(ctx, '800', isMobileLandscape()?14:22); ctx.textAlign = 'center';
+                ctx.fillText('รับคำตอบแล้ว ✓', w / 2, msgY + 37);
+                ctx.restore();
+            }
+
+            // Keep the same answer choices falling in a continuous loop until
+            // the learner catches one. Each card that fully leaves the bottom
+            // immediately re-enters from above the top edge.
+            if (!state.isWaitingNext) {
+                state.level4Options.forEach(option => {
+                    if (option.y > h + 20) {
+                        option.y = -option.height - 20;
+                    }
+                });
+            }
+
+            if (!state.isWaitingNext && caughtOption) {
+                playAnswerSound();
+                // Mark exactly the side the learner selected. Both left/right receive the SAME
+                // neutral blue blinking feedback so students cannot infer correctness from color.
+                state.level4Options.forEach(option => { option.selected = (option === caughtOption); });
+                const selectedText = caughtOption.text;
+                if (caughtOption.id === qData.ans) {
+                    state.scores.level4++;
+                } else {
+                    // ไม่แสดงเฉลยระหว่างเล่น
+                }
+                document.getElementById('hudScore').innerText = `ตอบถูก ${state.scores.level4} / ${state.totalQuestions}`;
+                advanceQuestionWithDelay(loadLevel4Question, 1400);
+            }
+        }
+
+        function renderLevel5Overlay(ctx) {
+            const w = ctx.canvas.width, h = ctx.canvas.height;
+            const qData = levelData[5].questions[state.currentQuestionIndex];
+            if (!qData) return;
+            const mission = state.level5Mission;
+            const answered = state.currentQuestionIndex;
+            mission.energy = Math.round((answered / state.totalQuestions) * 100);
+
+            // ด่าน 5 ใช้ตำแหน่งและรูปแบบ HUD เดียวกับด่าน 2
+            renderAdventureMissionHud(ctx, 5);
+
+            // กรอบคำถามด่าน 5 จัดตำแหน่ง/ขนาดเดียวกับด่าน 2
+            ctx.save();
+            const l5Palettes = [
+                ['#DBEAFE','#E0E7FF'], ['#DCFCE7','#CCFBF1'],
+                ['#FEF3C7','#FFEDD5'], ['#FCE7F3','#F3E8FF']
+            ];
+            const lp = l5Palettes[state.currentQuestionIndex % l5Palettes.length];
+            const lg = ctx.createLinearGradient(w/2-380, 155, w/2+380, 270);
+            lg.addColorStop(0, lp[0]); lg.addColorStop(1, lp[1]);
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.38)';
+            ctx.shadowBlur = 14; ctx.shadowOffsetY = 5;
+            ctx.fillStyle = lg;
+            const mobile = isMobileLandscape();
+            const qW = mobile ? Math.min(w - 48, 680) : 760;
+            const qY = mobile ? Math.max(92, h * 0.255) : 160;
+            const qH = mobile ? Math.max(82, Math.min(104, h * 0.24)) : 120;
+            ctx.beginPath(); ctx.roundRect(w / 2 - qW/2, qY, qW, qH, mobile ? 18 : 26); ctx.fill();
+            ctx.shadowColor = 'transparent';
+            ctx.lineWidth = 5; ctx.strokeStyle = '#10B981'; ctx.stroke();
+
+            ctx.fillStyle = '#065F46';
+            setCanvasFont(ctx, '800', 19); ctx.textAlign = 'center';
+            setCanvasFont(ctx, '800', mobile ? 10 : 19);
+            ctx.fillText(`🌍 ภารกิจที่ ${state.currentQuestionIndex + 1} / ${state.totalQuestions}`, w / 2, qY + (mobile ? 22 : 33));
+            ctx.fillStyle = '#0F172A';
+            drawAutoFitText(ctx, qData.q, w / 2 - qW/2 + (mobile ? 17 : 23), qY + qH * (mobile ? 0.64 : 0.67), qW - (mobile ? 34 : 45), qH * (mobile ? 0.56 : 0.52), {
+                maxSize: mobile ? 18 : 23, minSize: mobile ? 12 : 16, maxLines: mobile ? 3 : 4, weight: '800', align: 'left'
+            });
+            ctx.restore();
+
+            // Three action cards with subtle floating motion.
+            state.interactiveBubbles.forEach((b,i)=>{
+                const bob=Math.sin(performance.now()/550+b.bobOffset)*5;
+                const cy=b.y+bob, cw=b.cardWidth, ch=b.cardHeight;
+                ctx.save(); ctx.shadowColor='rgba(0,0,0,.35)'; ctx.shadowBlur=14; ctx.shadowOffsetY=6;
+                const cg=ctx.createLinearGradient(b.x-cw/2,cy-ch/2,b.x+cw/2,cy+ch/2);
+                const colors=[['#ECFDF5','#D1FAE5','#059669'],['#EFF6FF','#DBEAFE','#2563EB'],['#FFF7ED','#FFEDD5','#EA580C']][i];
+                cg.addColorStop(0,colors[0]); cg.addColorStop(1,colors[1]); ctx.fillStyle=cg;
+                ctx.beginPath(); ctx.roundRect(b.x-cw/2,cy-ch/2,cw,ch,28); ctx.fill();
+                ctx.shadowColor='transparent'; ctx.lineWidth=5; ctx.strokeStyle=colors[2]; ctx.stroke();
+                setCanvasFont(ctx,'800',mobile ? 22 : 31); ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle='#0F172A'; ctx.fillText(b.icon,b.x,cy-(mobile ? 22 : 38));
+                drawAutoFitText(ctx,b.text,b.x-cw/2+(mobile ? 11 : 14),cy+(mobile ? 16 : 12),cw-(mobile ? 22 : 28),ch-(mobile ? 50 : 58),{
+                    maxSize: mobile ? 18 : 21, minSize: mobile ? 12 : 16, maxLines: mobile ? 3 : 4, weight:'800', color:'#0F172A', align:'left'
+                }); ctx.restore();
+
+                // Selection is handled once per frame below using punch gestures, not dwell/hover.
+                // This prevents a hand resting on a card from accidentally answering.
+            });
+
+            // ===== Level 5 PALM SELECT: fixed hand-to-zone mapping =====
+            // มือซ้ายตอบได้เฉพาะกรอบซ้าย / มือขวาตอบได้เฉพาะกรอบขวา
+            // กรอบกลางต้องมีมือซ้ายและมือขวาอยู่ในกรอบพร้อมกันเท่านั้น
+            if (!state.isWaitingNext) {
+                const now = performance.now();
+                const sel = state.level5Arm; // reuse dwell state
+                const bubbles = state.interactiveBubbles;
+                const left = state.leftHandPos;
+                const right = state.rightHandPos;
+
+                function handInside(hand, b) {
+                    if (!hand || !hand.detected || !b) return false;
+                    const padX = 8, padY = 10;
+                    return hand.x >= b.x - b.cardWidth/2 + padX &&
+                           hand.x <= b.x + b.cardWidth/2 - padX &&
+                           hand.y >= b.y - b.cardHeight/2 + padY &&
+                           hand.y <= b.y + b.cardHeight/2 - padY;
+                }
+
+                const leftOnLeft = handInside(left, bubbles[0]);
+                const leftOnCenter = handInside(left, bubbles[1]);
+                const rightOnCenter = handInside(right, bubbles[1]);
+                const rightOnRight = handInside(right, bubbles[2]);
+                const bothCenter = leftOnCenter && rightOnCenter;
+
+                let idx = -1;
+                if (bothCenter) idx = 1;
+                else if (leftOnLeft && !rightOnRight && !leftOnCenter && !rightOnCenter) idx = 0;
+                else if (rightOnRight && !leftOnLeft && !leftOnCenter && !rightOnCenter) idx = 2;
+
+                const anyValidTouch = leftOnLeft || rightOnRight || leftOnCenter || rightOnCenter;
+                if (sel.requireNeutral) {
+                    if (!anyValidTouch) {
+                        sel.requireNeutral = false;
+                        sel.targetIndex = -1;
+                        sel.since = 0;
+                    }
+                } else if (idx < 0) {
+                    sel.targetIndex = -1;
+                    sel.since = 0;
+                } else {
+                    if (sel.targetIndex !== idx) {
+                        sel.targetIndex = idx;
+                        sel.since = now;
+                    }
+                    const held = now - sel.since;
+                    const progress = Math.max(0, Math.min(1, held / 800));
+                    const b = bubbles[idx];
+                    ctx.save();
+                    ctx.lineWidth = 8; ctx.strokeStyle = '#FACC15';
+                    ctx.beginPath(); ctx.roundRect(b.x-b.cardWidth/2-8,b.y-b.cardHeight/2-8,b.cardWidth+16,b.cardHeight+16,32); ctx.stroke();
+                    ctx.fillStyle='rgba(255,255,255,.92)'; ctx.beginPath(); ctx.roundRect(b.x-b.cardWidth/2,b.y+b.cardHeight/2+10,b.cardWidth,12,6); ctx.fill();
+                    ctx.fillStyle='#FACC15'; ctx.beginPath(); ctx.roundRect(b.x-b.cardWidth/2,b.y+b.cardHeight/2+10,b.cardWidth*progress,12,6); ctx.fill();
+                    ctx.restore();
+                    if (held >= 800) {
+                        playAnswerSound();
+                        if (b.isCorrect) state.scores.level5++;
+                        mission.combo++; mission.stars++;
+                        mission.flashUntil=now+900; mission.flashX=b.x; mission.flashY=b.y;
+                        document.getElementById('hudScore').innerText=`ตอบถูก ${state.scores.level5} / ${state.totalQuestions}`;
+                        sel.targetIndex=-1; sel.since=0; sel.requireNeutral=true;
+                        advanceQuestionWithDelay(loadLevel5Question,900);
+                    }
+                }
+            }
+
+            // Clear, classroom-friendly instruction. Hand shape is irrelevant; only arm position matters.
+            ctx.save();
+            ctx.textAlign='center'; ctx.textBaseline='middle';
+            setCanvasFont(ctx,'800',mobile ? 9 : 15); ctx.fillStyle='rgba(255,255,255,.95)';
+            if (mobile) wrapText(ctx,'🖐️ มือซ้าย = ซ้าย • 🙌 สองมือ = กลาง • ✋ มือขวา = ขวา',w*0.50,h-34,Math.min(w-120,560),10,2);
+            else ctx.fillText('🖐️ มือซ้าย = ซ้าย   •   🙌 สองมือพร้อมกัน = กลาง   •   ✋ มือขวา = ขวา', w*0.50, 550);
+            ctx.restore();
+
+            // Neutral celebration after every selection; same effect whether answer is right or wrong.
+            // Keep the confirmation in the narrow empty band between the question panel and answer cards
+            // so it never covers the answer text.
+            if(performance.now()<mission.flashUntil){
+                ctx.save();
+                const confirmY = 369;
+                const confirmW = Math.min(300, w * 0.30);
+                const confirmH = 28;
+                ctx.shadowColor='rgba(0,0,0,.28)'; ctx.shadowBlur=8;
+                ctx.fillStyle='rgba(15,23,42,.90)';
+                ctx.beginPath(); ctx.roundRect(w/2-confirmW/2, confirmY-confirmH/2, confirmW, confirmH, 14); ctx.fill();
+                ctx.shadowColor='transparent';
+                ctx.textAlign='center'; ctx.textBaseline='middle'; setCanvasFont(ctx,'800',17); ctx.fillStyle='#FFFFFF';
+                ctx.fillText('✓ รับคำตอบแล้ว',w/2,confirmY);
+                // Keep the decorative particles around the selected card, but no text is drawn over the cards.
+                setCanvasFont(ctx,'800',18);
+                for(let k=0;k<10;k++){ const a=k*Math.PI*2/10; const r=55+(900-(mission.flashUntil-performance.now()))*.06; ctx.fillText(k%2?'🍃':'✨',mission.flashX+Math.cos(a)*r,mission.flashY+Math.sin(a)*r); }
+                ctx.restore();
+            }
+        }
+
+        // Layout safety: gameplay questions/options are kept below the top HUD and above bottom hints.
+        function updateAndRenderGameCycle(ctx) {
+            const l1Layer=document.getElementById('level1TextLayer'), l4Layer=document.getElementById('level4TextLayer');
+            if(l1Layer&&state.currentLevel!==1) l1Layer.style.display='none';
+            if(l4Layer&&state.currentLevel!==4) l4Layer.style.display='none';
+            const level1Layer = document.getElementById('level1TextLayer');
+            if (level1Layer && state.currentLevel !== 1) level1Layer.style.display = 'none';
+            if (state.currentLevel === 1) renderLevel1Overlay(ctx);
+            else if (state.currentLevel === 2) renderLevel2Overlay(ctx);
+            else if (state.currentLevel === 3) renderLevel3Overlay(ctx);
+            else if (state.currentLevel === 4) renderLevel4Overlay(ctx);
+            else if (state.currentLevel === 5) renderLevel5Overlay(ctx);
+        }
+
+        function pauseGame() {
+            state.isPlaying = !state.isPlaying;
+            if (state.isPlaying) startGameplayMusic();
+            else stopGameplayMusic();
+            showToast(state.isPlaying ? "เริ่มเกมต่อ" : "พักเกมชั่วคราว", "⏸️");
+        }
+
+        function endLevel() {
+            state.isPlaying = false;
+            stopGameplayMusic();
+            const level1Layer = document.getElementById('level1TextLayer');
+            if (level1Layer) level1Layer.style.display = 'none';
+            // Hide the Level 4 DOM question/answer overlay before opening the
+            // score summary. The render loop may stop immediately at this
+            // point, so relying on the next frame to hide it leaves the text
+            // visible on top of the result dialog.
+            const level4Layer = document.getElementById('level4TextLayer');
+            if (level4Layer) level4Layer.style.display = 'none';
+            clearInterval(state.timerInterval);
+
+            const score = state.scores[`level${state.currentLevel}`];
+            const pct = Math.round((score / state.totalQuestions) * 100);
+            const passed = pct >= 80;
+
+            // Every level finishes through this function, so this guarantees
+            // that Levels 1–5 all play the correct result sound exactly here.
+            playLevelResultSound(passed, state.currentLevel);
+
+            document.getElementById('resultScoreText').innerText = `${score} / ${state.totalQuestions}`;
+            document.getElementById('resultPercentText').innerText = `${pct}%`;
+            document.getElementById('resultProgressBar').style.width = `${pct}%`;
+
+            const iconElem = document.getElementById('resultIcon');
+            const titleElem = document.getElementById('resultTitle');
+            const subElem = document.getElementById('resultSub');
+            const btnNext = document.getElementById('btnNextLevel');
+
+            if (passed) {
+                iconElem.innerText = '🏆';
+                iconElem.className = 'w-20 h-20 mx-auto mb-3 rounded-full flex items-center justify-center text-4xl shadow-lg bg-emerald-100 text-emerald-600';
+                titleElem.innerText = `ผ่านด่านที่ ${state.currentLevel} สำเร็จ!`;
+                subElem.innerText = `คุณทำได้ ${pct}% ซึ่งผ่านเกณฑ์ร้อยละ 80`;
+                btnNext.classList.remove('hidden');
+            } else {
+                iconElem.innerText = '💪';
+                iconElem.className = 'w-20 h-20 mx-auto mb-3 rounded-full flex items-center justify-center text-4xl shadow-lg bg-amber-100 text-amber-600';
+                titleElem.innerText = 'ยังไม่ผ่านเกณฑ์';
+                subElem.innerText = `ได้คะแนน ${pct}% (ต้องผ่านเกณฑ์ 80% ขึ้นไป) ลองท้าทายใหม่อีกครั้งนะ!`;
+                btnNext.classList.add('hidden');
+            }
+
+            const screens = getScreens();
+            screens.result.classList.remove('hidden');
+        }
+
+        function retryCurrentLevel() {
+            const screens = getScreens();
+            screens.result.classList.add('hidden');
+            startLevel(state.currentLevel);
+        }
+
+        function proceedToNextStep() {
+            const screens = getScreens();
+            screens.result.classList.add('hidden');
+            if (state.currentLevel < state.totalLevels) {
+                startLevel(state.currentLevel + 1);
+            } else {
+                showFinalCertificate();
+            }
+        }
+
+        function showFinalCertificate() {
+            stopCamera();
+            const totalScore = state.scores.level1 + state.scores.level2 + state.scores.level3 + state.scores.level4 + state.scores.level5;
+            const maxScore = 100;
+            const percent = ((totalScore / maxScore) * 100).toFixed(1);
+
+            document.getElementById('certPlayerName').innerText = state.playerName;
+            document.getElementById('certTotalScore').innerText = `${totalScore} / ${maxScore}`;
+            document.getElementById('certGradeText').innerText = `ผ่านเกณฑ์ (${percent}%)`;
+            
+            const now = new Date();
+            const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+            const dateStr = `วันที่อนุมัติ: ${now.getDate()} ${thaiMonths[now.getMonth()]} ${now.getFullYear() + 543}`;
+            document.getElementById('certDateText').innerText = dateStr;
+
+            showScreen('certificate');
+        }
+
+        // --- ปรับปรุงฟังก์ชันดาวน์โหลดเกียรติบัตรพร้อมระบบป้องกันข้อผิดพลาด ---
+        function downloadCertPNG() {
+            showToast("กำลังสร้างรูปภาพ PNG...", "⏳");
+            const element = document.getElementById('certificateCaptureArea');
+            
+            if (!window.html2canvas) {
+                showToast("ไม่สามารถโหลดระบบสร้างภาพได้ (กรุณาเช็คอินเทอร์เน็ต)", "❌");
+                return;
+            }
+
+            try {
+                html2canvas(element, { 
+                    scale: 2, 
+                    useCORS: true,
+                    allowTaint: true,
+                    backgroundColor: '#FFFBEB'
+                }).then(canvas => {
+                    try {
+                        const link = document.createElement('a');
+                        link.download = `เกียรติบัตร_${state.playerName}.png`;
+                        link.href = canvas.toDataURL('image/png');
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        showToast("บันทึกรูปภาพสำเร็จ!", "✅");
+                    } catch (e) {
+                        console.error("Canvas export failed:", e);
+                        // Fallback open image in new tab if download click is blocked by iFrame
+                        const imgWindow = window.open("");
+                        if (imgWindow) {
+                            imgWindow.document.write(`<img src="${canvas.toDataURL('image/png')}" style="max-width:100%"/>`);
+                            showToast("เปิดรูปในหน้าต่างใหม่สำเร็จ (คลิกขวาเพื่อบันทึก)", "🖼️");
+                        } else {
+                            showToast("โปรดอนุญาตให้เบราว์เซอร์เปิด Pop-up เพื่อดาวน์โหลด", "⚠️");
+                        }
+                    }
+                }).catch(err => {
+                    console.error(err);
+                    showToast("หากเปิดผ่าน file:// แนะนำให้รันผ่าน Live Server เพื่อดาวน์โหลดครับ", "⚠️");
+                });
+            } catch (err) {
+                showToast("เกิดข้อผิดพลาดในการดาวน์โหลด", "❌");
+            }
+        }
+
+        function downloadCertPDF() {
+            showToast("กำลังสร้างไฟล์ PDF...", "⏳");
+            const element = document.getElementById('certificateCaptureArea');
+
+            if (!window.html2canvas || !window.jspdf) {
+                showToast("ไม่พบไลบรารีสร้าง PDF (กรุณาเชื่อมต่ออินเทอร์เน็ต)", "❌");
+                return;
+            }
+
+            try {
+                html2canvas(element, { 
+                    scale: 2, 
+                    useCORS: true, 
+                    allowTaint: true,
+                    backgroundColor: '#FFFBEB'
+                }).then(canvas => {
+                    try {
+                        const imgData = canvas.toDataURL('image/png');
+                        const { jsPDF } = window.jspdf;
+                        const pdf = new jsPDF({
+                            orientation: 'landscape',
+                            unit: 'px',
+                            format: [canvas.width, canvas.height]
+                        });
+                        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+                        pdf.save(`เกียรติบัตร_${state.playerName}.pdf`);
+                        showToast("บันทึกเอกสาร PDF สำเร็จ!", "✅");
+                    } catch (e) {
+                        console.error("PDF generation error:", e);
+                        showToast("ถูกบล็อกการดาวน์โหลดโดยเบราว์เซอร์หรือ iFrame", "⚠️");
+                    }
+                }).catch(err => {
+                    console.error(err);
+                    showToast("หากเปิดผ่าน file:// แนะนำให้เปิดผ่าน Web Server/Live Server ครับ", "⚠️");
+                });
+            } catch (err) {
+                showToast("เกิดข้อผิดพลาดในการสร้างไฟล์ PDF", "❌");
+            }
+        }
+
+        function showToast(msg, icon = "💡") {
+            const toast = document.getElementById('toastBox');
+            document.getElementById('toastMessage').innerText = msg;
+            document.getElementById('toastIcon').innerText = icon;
+            toast.classList.remove('hidden');
+            setTimeout(() => toast.classList.add('hidden'), 2500);
+        }
+
+        window.onload = function() {
+            showScreen('welcome');
+        };
+    </script>
+</body>
+</html>
